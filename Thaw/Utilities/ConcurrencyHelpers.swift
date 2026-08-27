@@ -81,9 +81,16 @@ extension Task where Failure == any Error {
         @_inheritActorContext @_implicitSelfCapture
         operation: sending @escaping @isolated(any) () async throws -> Success
     ) {
+        // Task names (SE-0469) need Swift 6.2; older toolchains drop the name.
+        #if compiler(>=6.2)
         self.init(name: name, priority: priority) {
             try await Task.withTimeout(timeout, tolerance: tolerance, clock: clock, operation: operation)
         }
+        #else
+        self.init(priority: priority) {
+            try await Task.withTimeout(timeout, tolerance: tolerance, clock: clock, operation: operation)
+        }
+        #endif
     }
 
     /// Runs the given throwing operation asynchronously as part of a
@@ -110,8 +117,14 @@ extension Task where Failure == any Error {
         priority: TaskPriority? = nil,
         operation: sending @escaping @isolated(any) () async throws -> Success
     ) -> Task<Success, Failure> {
+        #if compiler(>=6.2)
         detached(name: name, priority: priority) {
             try await withTimeout(timeout, tolerance: tolerance, clock: clock, operation: operation)
         }
+        #else
+        detached(priority: priority) {
+            try await withTimeout(timeout, tolerance: tolerance, clock: clock, operation: operation)
+        }
+        #endif
     }
 }

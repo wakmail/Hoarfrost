@@ -108,7 +108,11 @@ extension MenuBarItemService {
                     diagLog.warning("Session was cancelled with error \(error.localizedDescription)")
                     self.session = nil
                 }
-                session.setPeerRequirement(.isFromSameTeam())
+                #if compiler(>=6.2)
+                if #available(macOS 26.0, *) {
+                    session.setPeerRequirement(.isFromSameTeam())
+                }
+                #endif
                 session.setTargetQueue(queue)
                 try session.activate()
                 diagLog.debug("getOrCreateSession: XPC session activated successfully")

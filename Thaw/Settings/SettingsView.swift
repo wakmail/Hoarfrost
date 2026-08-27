@@ -122,6 +122,7 @@ struct SettingsView: View {
 
     @ToolbarContentBuilder
     private var sidebarToolbarSpacer: some ToolbarContent {
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             ToolbarSpacer(.flexible)
         } else {
@@ -129,16 +130,25 @@ struct SettingsView: View {
                 Spacer(minLength: 0)
             }
         }
+        #else
+        ToolbarItem {
+            Spacer(minLength: 0)
+        }
+        #endif
     }
 
     @ViewBuilder
     private var detailView: some View {
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             settingsPane
                 .scrollEdgeEffectStyle(.hard, for: .top)
         } else {
             settingsPane
         }
+        #else
+        settingsPane
+        #endif
     }
 
     @ViewBuilder

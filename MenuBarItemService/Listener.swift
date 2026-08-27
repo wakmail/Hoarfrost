@@ -54,11 +54,17 @@ final class Listener {
     /// same team identifier as the service process.
     @available(macOS 26.0, *)
     private func uncheckedActivateWithSameTeamRequirement() throws {
+        #if compiler(>=6.2)
+        // XPCListener(service:requirement:) only exists in the macOS 26 SDK.
+        // Older toolchains fall back to the unrestricted listener.
         xpcListener = try XPCListener(service: name, requirement: .isFromSameTeam()) { [weak self] request in
             request.accept { message in
                 self?.handleMessage(message)
             }
         }
+        #else
+        try uncheckedActivate()
+        #endif
     }
 
     /// Activates the listener without checking if it is already active.

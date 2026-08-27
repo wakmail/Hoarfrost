@@ -23,6 +23,7 @@ struct MenuBarAppearanceEditor: View {
     let onDone: (() -> Void)?
 
     var body: some View {
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             VStack(spacing: 0) {
                 panelHeading
@@ -32,11 +33,18 @@ struct MenuBarAppearanceEditor: View {
                 bottomBar
             }
         } else {
-            VStack(spacing: 0) {
-                panelHeading
-                bodyContent
-                bottomBar
-            }
+            legacyBody
+        }
+        #else
+        legacyBody
+        #endif
+    }
+
+    private var legacyBody: some View {
+        VStack(spacing: 0) {
+            panelHeading
+            bodyContent
+            bottomBar
         }
     }
 
@@ -44,13 +52,20 @@ struct MenuBarAppearanceEditor: View {
     private var bodyContent: some View {
         if appState.menuBarManager.isMenuBarHiddenBySystemUserDefaults {
             cannotEdit
-        } else if #available(macOS 26.0, *) {
-            mainForm
-                .scrollEdgeEffectStyle(.hard, for: .vertical)
-                .padding(.top, topPadding)
         } else {
+            #if compiler(>=6.2)
+            if #available(macOS 26.0, *) {
+                mainForm
+                    .scrollEdgeEffectStyle(.hard, for: .vertical)
+                    .padding(.top, topPadding)
+            } else {
+                mainForm
+                    .padding(.top, topPadding)
+            }
+            #else
             mainForm
                 .padding(.top, topPadding)
+            #endif
         }
     }
 

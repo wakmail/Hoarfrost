@@ -128,18 +128,25 @@ extension Hotkey {
 
 // MARK: Hotkey: Equatable
 
-extension Hotkey: @MainActor Equatable {
+// Isolated conformances (`@MainActor Equatable`) need Swift 6.2. Older
+// toolchains get plain conformances, which is fine in language mode 5.
+#if compiler(>=6.2)
+extension Hotkey: @MainActor Equatable {}
+extension Hotkey: @MainActor Hashable {}
+#else
+extension Hotkey: Equatable {}
+extension Hotkey: Hashable {}
+#endif
+
+extension Hotkey {
     static func == (lhs: Hotkey, rhs: Hotkey) -> Bool {
         lhs.keyCombination == rhs.keyCombination &&
             lhs.action == rhs.action
     }
-}
 
-// MARK: Hotkey: Hashable
-
-extension Hotkey: @MainActor Hashable {
     func hash(into hasher: inout Hasher) {
         hasher.combine(keyCombination)
         hasher.combine(action)
     }
 }
+
