@@ -14,6 +14,15 @@ import ScreenCaptureKit
 enum ScreenCapture {
     private static let diagLog = DiagLog(category: "ScreenCapture")
 
+    /// The backend that performs window captures, chosen once at first use.
+    ///
+    /// See ``WindowCaptureBackend`` for why this is the only OS specific seam.
+    static let backend: any WindowCaptureBackend = {
+        let backend = WindowCaptureBackendSelection.current.makeBackend()
+        diagLog.notice("Using \(backend.name) capture backend")
+        return backend
+    }()
+
     // MARK: Permissions
 
     /// Returns a Boolean value that indicates whether the app has screen
@@ -86,20 +95,20 @@ enum ScreenCapture {
     ///     Pass `nil` to capture the minimum rectangle that encloses the windows.
     ///   - option: Options that specify which parts of the windows are captured.
     static func captureWindows(with windowIDs: [CGWindowID], screenBounds: CGRect? = nil, option: CGWindowImageOption = []) -> CGImage? {
-        guard let array = Bridging.createCGWindowArray(with: windowIDs) else {
-            diagLog.warning("captureWindows: createCGWindowArray returned nil for \(windowIDs.count) window IDs")
+        guard !windowIDs.isEmpty else {
+            diagLog.warning("captureWindows: called with no window IDs")
             return nil
         }
         let bounds = screenBounds ?? .null
         let boundsDesc = bounds.isNull ? "null (auto)" : String(format: "(%.0f,%.0f %.0fx%.0f)", bounds.origin.x, bounds.origin.y, bounds.width, bounds.height)
-        diagLog.debug("captureWindows: bounds=\(boundsDesc), windowCount=\(windowIDs.count), options=\(option.rawValue)")
-        // ScreenCaptureKit doesn't support capturing images of offscreen menu bar
-        // items, so we unfortunately have to use the deprecated CGWindowList API.
-        let image = CGImage(windowListFromArrayScreenBounds: bounds, windowArray: array as CFArray, imageOption: option)
+        diagLog.debug("captureWindows: backend=\(backend.name), bounds=\(boundsDesc), windowCount=\(windowIDs.count), options=\(option.rawValue)")
+        // ScreenCaptureKit cannot capture offscreen menu bar items, so both
+        // backends go through window list image APIs. See WindowCaptureBackend.
+        let image = backend.captureWindows(windowIDs, screenBounds: bounds, option: option)
         if let image {
             diagLog.debug("captureWindows: ✓ captured \(windowIDs.count) windows → \(image.width)×\(image.height)px")
         } else {
-            diagLog.warning("captureWindows: CGImage(windowListFromArrayScreenBounds:) returned nil for \(windowIDs.count) windows (IDs: \(windowIDs.prefix(5)))")
+            diagLog.warning("captureWindows: \(backend.name) returned nil for \(windowIDs.count) windows (IDs: \(windowIDs.prefix(5)))")
         }
         return image
     }

@@ -40,15 +40,18 @@ with its own control icon, reveal style and hotkey. GPLv3, same as both parents.
 
 ## Plan
 
-### 1. Capture backend seam
-- `protocol WindowCaptureBackend` with `captureWindows(ids, bounds, options)`
-  and `captureBelowWindow`.
-- `CGWindowListBackend` (14+, deprecated API, current 1.3 code) and
-  `SkyLightBackend` (dlsym, Thaw 2.0 `Bridging.captureWindowsImage`).
-- Pick at runtime: SkyLight when the symbol resolves, else CGWindowList.
-  Advanced setting to force one for debugging.
-- `ScreenCapture` becomes a thin facade over the chosen backend, so callers
-  in `MenuBarItemImageCache` do not change.
+### 1. Capture backend seam (done, needs runtime testing)
+- `Thaw/Utilities/WindowCaptureBackend.swift`: `protocol WindowCaptureBackend`
+  with `CGWindowListCaptureBackend` (14+) and `SkyLightCaptureBackend`
+  (dlsym, works on 15 and 26).
+- Picked once at first use in `ScreenCapture.backend`: SkyLight when the
+  symbol resolves, else CGWindowList. Override with
+  `defaults write <bundle id> CaptureBackend skyLight|cgWindowList|automatic`.
+- Callers did not change. `captureScreenBelowWindow` (overlay panel only)
+  still uses `CGWindowListCreateImage` directly; move it behind the backend
+  when the 26 build needs it.
+- Still to do: run the app with each backend on Sequoia and compare Ice Bar
+  images; surface the override in the Advanced settings pane.
 
 ### 2. Dynamic groups (replaces the fixed three sections)
 - `MenuBarGroup`: id, name, icon, reveal style, hotkey, order.
