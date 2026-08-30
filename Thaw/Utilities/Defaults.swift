@@ -175,6 +175,7 @@ extension Defaults {
         static let enableDiagnosticLogging = false
         static let useLCSSortingOnNotchedDisplays = false
         static let useOptionClickToShowAlwaysHiddenSection = false
+        static let useAXClickDelivery = true
 
         // MARK: Search
 
@@ -237,6 +238,7 @@ extension Defaults {
         case enableDiagnosticLogging = "EnableDiagnosticLogging"
         case useLCSSortingOnNotchedDisplays = "UseLCSSortingOnNotchedDisplays"
         case useOptionClickToShowAlwaysHiddenSection = "UseOptionClickToShowAlwaysHiddenSection"
+        case useAXClickDelivery = "UseAXClickDelivery"
 
         // MARK: Search
 

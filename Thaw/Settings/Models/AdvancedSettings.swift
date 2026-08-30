@@ -54,6 +54,8 @@ final class AdvancedSettings: ObservableObject {
     /// full sorting on notched displays.
     @Published var useLCSSortingOnNotchedDisplays = Defaults.DefaultValue.useLCSSortingOnNotchedDisplays
 
+    @Published var useAXClickDelivery = Defaults.DefaultValue.useAXClickDelivery
+
     /// Storage for internal observers.
     private var cancellables = Set<AnyCancellable>()
 
@@ -80,6 +82,7 @@ final class AdvancedSettings: ObservableObject {
         Defaults.ifPresent(key: .iconRefreshInterval, assign: &iconRefreshInterval)
         Defaults.ifPresent(key: .enableDiagnosticLogging, assign: &enableDiagnosticLogging)
         Defaults.ifPresent(key: .useLCSSortingOnNotchedDisplays, assign: &useLCSSortingOnNotchedDisplays)
+        Defaults.ifPresent(key: .useAXClickDelivery, assign: &useAXClickDelivery)
 
         Defaults.ifPresent(key: .sectionDividerStyle) { rawValue in
             if let style = SectionDividerStyle(rawValue: rawValue) {
@@ -174,6 +177,13 @@ final class AdvancedSettings: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { enable in
                 Defaults.set(enable, forKey: .useLCSSortingOnNotchedDisplays)
+            }
+            .store(in: &c)
+
+        $useAXClickDelivery
+            .receive(on: DispatchQueue.main)
+            .sink { enable in
+                Defaults.set(enable, forKey: .useAXClickDelivery)
             }
             .store(in: &c)
 
