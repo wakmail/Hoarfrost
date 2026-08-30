@@ -641,31 +641,28 @@ final class ControlItem {
 
         menu.addItem(.separator())
 
-        // Add items to toggle the hidden and always-hidden sections.
-        for name: MenuBarSection.Name in [.hidden, .alwaysHidden] {
-            guard
-                let section = appState.menuBarManager.section(withName: name),
-                section.isEnabled
-            else {
-                continue
-            }
+        // Add items to toggle every hidden section.
+        for section in appState.menuBarManager.sections where !section.name.isVisible && section.isEnabled {
+            let name = section.name
             let sectionTitle: String
             let iconName: String
-            switch (section.isHidden, name) {
-            case (true, .hidden):
+            switch (section.isHidden, name.id) {
+            case (true, "hidden"):
                 sectionTitle = String(localized: "Show Hidden Section")
                 iconName = "eye"
-            case (false, .hidden):
+            case (false, "hidden"):
                 sectionTitle = String(localized: "Hide Hidden Section")
                 iconName = "eye.slash"
-            case (true, .alwaysHidden):
+            case (true, "alwaysHidden"):
                 sectionTitle = String(localized: "Show Always-Hidden Section")
                 iconName = "eye"
-            case (false, .alwaysHidden):
+            case (false, "alwaysHidden"):
                 sectionTitle = String(localized: "Hide Always-Hidden Section")
                 iconName = "eye.slash"
             default:
-                sectionTitle = String(localized: "\(section.isHidden ? "Show" : "Hide") \(name.displayString) Section")
+                sectionTitle = section.isHidden
+                    ? String(localized: "Show \(name.displayName)")
+                    : String(localized: "Hide \(name.displayName)")
                 iconName = section.isHidden ? "eye" : "eye.slash"
             }
             let item = NSMenuItem(

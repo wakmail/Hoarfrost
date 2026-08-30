@@ -67,6 +67,30 @@ final class SectionDropdownMenu: NSObject {
         controlItem.present(makeMenu())
     }
 
+    /// Builds one menu with a submenu per hidden section.
+    ///
+    /// Returns the per section builders alongside the menu; the caller must
+    /// keep them alive while the menu is open because menu items hold their
+    /// targets weakly.
+    static func makeCombinedMenu(appState: AppState) -> (menu: NSMenu, builders: [SectionDropdownMenu]) {
+        let menu = NSMenu(title: Constants.displayName)
+        menu.autoenablesItems = false
+        var builders = [SectionDropdownMenu]()
+        for section in appState.menuBarManager.sections where !section.name.isVisible && section.isEnabled {
+            let builder = SectionDropdownMenu(appState: appState, sectionName: section.name)
+            builders.append(builder)
+            let row = NSMenuItem(title: section.name.displayName, action: nil, keyEquivalent: "")
+            row.submenu = builder.makeMenu()
+            menu.addItem(row)
+        }
+        if builders.isEmpty {
+            let empty = NSMenuItem(title: String(localized: "No sections"), action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+        }
+        return (menu, builders)
+    }
+
     /// The captured image of the item scaled to row height, falling back to
     /// the owning app's icon when no capture exists yet.
     private func rowImage(for item: MenuBarItem) -> NSImage? {

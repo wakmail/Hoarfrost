@@ -65,7 +65,7 @@ final class MenuBarManager: ObservableObject {
     /// The managed sections in the menu bar.
     @Published private(set) var sections: [MenuBarSection] = []
 
-    private var sectionsConfiguration: SectionsConfiguration = .defaults
+    private(set) var sectionsConfiguration: SectionsConfiguration = .defaults
 
     /// A Boolean value that indicates whether at least one of the manager's
     /// sections is visible.
@@ -143,6 +143,13 @@ final class MenuBarManager: ObservableObject {
         Task {
             await appState.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
         }
+    }
+
+    /// Chooses whether the app icon opens one combined dropdown.
+    func setIceIconOpensCombinedMenu(_ enabled: Bool) {
+        sectionsConfiguration.iceIconOpensCombinedMenu = enabled
+        saveSectionsConfiguration()
+        objectWillChange.send()
     }
 
     /// Changes how a section reveals its items.

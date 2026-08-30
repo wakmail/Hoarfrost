@@ -75,6 +75,10 @@ struct MenuBarLayoutSettingsPane: View {
                     }
                 }
                 Button("Add Section") { appState.menuBarManager.addSection() }
+                Toggle("Clicking the menu bar icon opens one dropdown with every section", isOn: Binding(
+                    get: { appState.menuBarManager.sectionsConfiguration.iceIconOpensCombinedMenu },
+                    set: { appState.menuBarManager.setIceIconOpensCombinedMenu($0) }
+                ))
             }
         }
         .alert("Remove section?", isPresented: Binding(get: { sectionBeingRemoved != nil }, set: { if !$0 { sectionBeingRemoved = nil } })) {

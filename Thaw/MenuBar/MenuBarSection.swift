@@ -98,6 +98,9 @@ final class MenuBarSection {
     /// The dropdown used by the `menu` reveal style.
     private var dropdownMenu: SectionDropdownMenu?
 
+    /// Builders kept alive while the combined menu is open.
+    private var combinedMenuBuilders: [SectionDropdownMenu] = []
+
     /// The control item that manages the section.
     let controlItem: ControlItem
 
@@ -287,6 +290,15 @@ final class MenuBarSection {
         menuBarManager.updateLastShowTimestamp()
 
         guard controlItem.isAddedToMenuBar else {
+            return
+        }
+
+        if name.isVisible, let appState, menuBarManager.sectionsConfiguration.iceIconOpensCombinedMenu {
+            // One icon, every section: a dropdown with a submenu per section.
+            menuBarManager.iceBarPanel.close()
+            let combined = SectionDropdownMenu.makeCombinedMenu(appState: appState)
+            combinedMenuBuilders = combined.builders
+            controlItem.present(combined.menu)
             return
         }
 
