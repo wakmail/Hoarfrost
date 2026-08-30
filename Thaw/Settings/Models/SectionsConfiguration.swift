@@ -93,11 +93,11 @@ struct SectionsConfiguration: Codable, Hashable, Sendable {
     /// In cycle mode, wait for the double click window before opening so
     /// fast multi clicks jump without flashing. Off opens instantly, and
     /// intermediate steps may flash on multi clicks.
-    var cycleWaitsForMultiClicks: Bool = true
+    var cycleWaitsForMultiClicks: Bool = false
 
     static let defaults = SectionsConfiguration(hiddenSections: [.hidden, .alwaysHidden])
 
-    init(hiddenSections: [SectionDefinition], iceIconOpensCombinedMenu: Bool = false, dropdownShowsAppIcons: Bool = false, emptyBarClickBehavior: EmptyBarClickBehavior = .toggleFirst, cycleWaitsForMultiClicks: Bool = true) {
+    init(hiddenSections: [SectionDefinition], iceIconOpensCombinedMenu: Bool = false, dropdownShowsAppIcons: Bool = false, emptyBarClickBehavior: EmptyBarClickBehavior = .toggleFirst, cycleWaitsForMultiClicks: Bool = false) {
         self.hiddenSections = hiddenSections
         self.iceIconOpensCombinedMenu = iceIconOpensCombinedMenu
         self.dropdownShowsAppIcons = dropdownShowsAppIcons
@@ -115,6 +115,6 @@ struct SectionsConfiguration: Codable, Hashable, Sendable {
         iceIconOpensCombinedMenu = try container.decodeIfPresent(Bool.self, forKey: .iceIconOpensCombinedMenu) ?? false
         dropdownShowsAppIcons = try container.decodeIfPresent(Bool.self, forKey: .dropdownShowsAppIcons) ?? false
         emptyBarClickBehavior = try container.decodeIfPresent(EmptyBarClickBehavior.self, forKey: .emptyBarClickBehavior) ?? .toggleFirst
-        cycleWaitsForMultiClicks = try container.decodeIfPresent(Bool.self, forKey: .cycleWaitsForMultiClicks) ?? true
+        cycleWaitsForMultiClicks = try container.decodeIfPresent(Bool.self, forKey: .cycleWaitsForMultiClicks) ?? false
     }
 }
