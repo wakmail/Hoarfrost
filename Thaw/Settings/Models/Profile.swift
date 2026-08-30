@@ -4,6 +4,7 @@
 //
 //  Copyright (Ice) © 2023–2025 Jordan Baird
 //  Copyright (Thaw) © 2026 Toni Förster
+//  Copyright (Hoarfrost) © 2026 wakmail
 //  Licensed under the GNU GPLv3
 
 import Foundation
@@ -136,6 +137,12 @@ struct AdvancedSettingsSnapshot: Codable {
     }
 }
 
+/// The saved item order for one configured section.
+struct ProfileSectionItemOrder: Codable, Hashable {
+    var sectionID: String
+    var itemIDs: [String]
+}
+
 // MARK: - MenuBarLayoutSnapshot
 
 /// A codable snapshot of the menu bar item layout.
@@ -154,6 +161,12 @@ struct MenuBarLayoutSnapshot: Codable {
     /// Ordered list of uniqueIdentifiers per section, capturing the visual
     /// order of items at save time. Used to restore within-section ordering.
     var itemOrder: [String: [String]]?
+
+    /// Ordered section item orders for profiles created by Hoarfrost.
+    var sectionItemOrders: [ProfileSectionItemOrder]?
+
+    /// The section configuration captured with this profile.
+    var sectionsConfiguration: SectionsConfiguration?
 }
 
 // MARK: - ProfileContent

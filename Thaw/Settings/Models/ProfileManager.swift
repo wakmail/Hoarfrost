@@ -4,6 +4,7 @@
 //
 //  Copyright (Ice) © 2023–2025 Jordan Baird
 //  Copyright (Thaw) © 2026 Toni Förster
+//  Copyright (Hoarfrost) © 2026 wakmail
 //  Licensed under the GNU GPLv3
 
 import Cocoa
@@ -260,11 +261,25 @@ final class ProfileManager: ObservableObject {
         let pinnedHidden = Set(profile.menuBarLayout.pinnedHiddenBundleIDs)
         let pinnedAlwaysHidden = Set(profile.menuBarLayout.pinnedAlwaysHiddenBundleIDs)
         let sectionOrder = profile.menuBarLayout.savedSectionOrder
-        let itemSectionMap = profile.menuBarLayout.itemSectionMap ?? [:]
-        let itemOrder = profile.menuBarLayout.itemOrder ?? [:]
+        var itemSectionMap = profile.menuBarLayout.itemSectionMap ?? [:]
+        var itemOrder = profile.menuBarLayout.sectionItemOrders?
+            .reduce(into: [String: [String]]()) { $0[$1.sectionID] = $1.itemIDs }
+            ?? profile.menuBarLayout.itemOrder
+            ?? [:]
         layoutGeneration &+= 1
         let generation = layoutGeneration
         layoutTask = Task { [weak self] in
+            if let sectionsConfiguration = profile.menuBarLayout.sectionsConfiguration {
+                await appState.menuBarManager.applySectionsConfiguration(sectionsConfiguration)
+            }
+            let validSectionIDs = Set(appState.menuBarManager.sections.map { $0.name.id })
+            let fallbackSectionID = appState.menuBarManager.sections.first { $0.name.rank == 1 }?.name.id ?? "hidden"
+            for (identifier, sectionID) in Array(itemSectionMap) where !validSectionIDs.contains(sectionID) {
+                itemSectionMap[identifier] = fallbackSectionID
+            }
+            for sectionID in Array(itemOrder.keys) where !validSectionIDs.contains(sectionID) {
+                itemOrder[fallbackSectionID, default: []].append(contentsOf: itemOrder.removeValue(forKey: sectionID) ?? [])
+            }
             await appState.itemManager.applyProfileLayout(
                 pinnedHidden: pinnedHidden,
                 pinnedAlwaysHidden: pinnedAlwaysHidden,
@@ -397,6 +412,7 @@ final class ProfileManager: ObservableObject {
 
         var itemSectionMap = [String: String]()
         var itemOrder = [String: [String]]()
+        var sectionItemOrders = [ProfileSectionItemOrder]()
         let cache = appState.itemManager.itemCache
         for section in MenuBarSection.Name.allCases {
             let sectionKey = section.id
@@ -408,9 +424,8 @@ final class ProfileManager: ObservableObject {
                 itemSectionMap[uid] = sectionKey
                 orderedIDs.append(uid)
             }
-            if !orderedIDs.isEmpty {
-                itemOrder[sectionKey] = orderedIDs
-            }
+            itemOrder[sectionKey] = orderedIDs
+            sectionItemOrders.append(ProfileSectionItemOrder(sectionID: sectionKey, itemIDs: orderedIDs))
         }
 
         return MenuBarLayoutSnapshot(
@@ -419,7 +434,9 @@ final class ProfileManager: ObservableObject {
             pinnedAlwaysHiddenBundleIDs: pinnedAlwaysHiddenBundleIDs,
             customNames: customNames,
             itemSectionMap: itemSectionMap,
-            itemOrder: itemOrder
+            itemOrder: itemOrder,
+            sectionItemOrders: sectionItemOrders,
+            sectionsConfiguration: appState.menuBarManager.sectionsConfiguration
         )
     }
 
@@ -434,6 +451,7 @@ final class ProfileManager: ObservableObject {
         profile.hotkeys = Defaults.dictionary(forKey: .hotkeys) as? [String: Data] ?? [:]
         profile.displayConfigurations = appState.settings.displaySettings.configurations
         profile.appearanceConfiguration = appState.appearanceManager.configuration
+        profile.menuBarLayout.sectionsConfiguration = appState.menuBarManager.sectionsConfiguration
     }
 
     /// Saves a profile to disk and updates the manifest.

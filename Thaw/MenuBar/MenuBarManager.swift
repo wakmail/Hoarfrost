@@ -104,6 +104,31 @@ final class MenuBarManager: ObservableObject {
         Defaults.set(data, forKey: .sectionsConfiguration)
     }
 
+    /// Applies the section configuration carried by a profile.
+    func applySectionsConfiguration(_ configuration: SectionsConfiguration) async {
+        guard let appState else { return }
+        let retainedIDs = Set(configuration.hiddenSections.map(\.id))
+        for section in sections where !section.name.isVisible && !retainedIDs.contains(section.name.id) {
+            section.controlItem.removeFromMenuBar()
+        }
+
+        sectionsConfiguration = configuration
+        let names = [MenuBarSection.Name.visible] + configuration.hiddenSections.enumerated().map { index, definition in
+            MenuBarSection.Name(id: definition.id, rank: index + 1, displayName: definition.displayName)
+        }
+        var rebuilt = [MenuBarSection]()
+        for name in names {
+            let section = sections.first(where: { $0.name.id == name.id }) ?? MenuBarSection(name: name)
+            section.name = name
+            section.revealStyle = configuration.hiddenSections.first(where: { $0.id == name.id })?.revealStyle ?? .automatic
+            section.performSetup(with: appState)
+            rebuilt.append(section)
+        }
+        sections = rebuilt
+        publishConfiguredNames()
+        saveSectionsConfiguration()
+    }
+
     /// Mirrors the current section list into `MenuBarSection.Name.configured`
     /// so code that runs off the main actor sees the same sections.
     private func publishConfiguredNames() {
