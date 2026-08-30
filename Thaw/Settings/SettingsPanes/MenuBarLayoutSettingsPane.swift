@@ -88,7 +88,9 @@ struct MenuBarLayoutSettingsPane: View {
                     get: { appState.menuBarManager.sectionsConfiguration.emptyBarClickBehavior },
                     set: { appState.menuBarManager.setEmptyBarClickBehavior($0) }
                 )) {
-                    ForEach(EmptyBarClickBehavior.allCases, id: \.self) { behavior in
+                    // Split halves exists in code but is hidden: an invisible
+                    // boundary proved too confusing to offer.
+                    ForEach([EmptyBarClickBehavior.toggleFirst, .cycle], id: \.self) { behavior in
                         Text(behavior.displayName).tag(behavior)
                     }
                 }
