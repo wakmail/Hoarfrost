@@ -89,6 +89,10 @@ struct MenuBarLayoutSettingsPane: View {
                         set: { appState.menuBarManager.setCycleWaitsForMultiClicks($0) }
                     ))
                 }
+                Toggle("Attach the floating bar to the menu bar", isOn: Binding(
+                    get: { appState.menuBarManager.sectionsConfiguration.iceBarAttachedToMenuBar },
+                    set: { appState.menuBarManager.setIceBarAttachedToMenuBar($0) }
+                ))
                 Toggle("Show app icons in dropdowns instead of menu bar images", isOn: Binding(
                     get: { appState.menuBarManager.sectionsConfiguration.dropdownShowsAppIcons },
                     set: { appState.menuBarManager.setDropdownShowsAppIcons($0) }

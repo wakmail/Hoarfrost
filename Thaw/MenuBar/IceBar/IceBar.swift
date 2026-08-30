@@ -197,7 +197,21 @@ final class IceBarPanel: NSPanel {
         // the panel to prevent the color from flashing.
         colorManager.updateAllProperties(with: frame, screen: screen)
 
-        orderFrontRegardless()
+        // Unfold downward from the menu bar, the dropdown flattening into
+        // the bar rather than a panel blinking into place.
+        let target = frame
+        let unfoldSuppressed = appState.menuBarManager.barUnfoldSuppressedUntil.map { Date.now < $0 } ?? false
+        if !isVisible, target.height > 1, !unfoldSuppressed {
+            setFrame(NSRect(x: target.minX, y: target.maxY - 1, width: target.width, height: 1), display: false)
+            orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.14
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                animator().setFrame(target, display: true)
+            }
+        } else {
+            orderFrontRegardless()
+        }
 
         // Rehide temporarily shown items and refresh caches in the
         // background. Ordering is preserved: rehide moves items back
@@ -331,13 +345,21 @@ private struct IceBarContentView: View {
         return menuBarHeight > 0 ? menuBarHeight : nil
     }
 
-    private var clipShape: some InsettableShape {
-        if configuration.hasRoundedShape {
-            RoundedRectangle(cornerRadius: frame.height / 2, style: .circular)
+    private var isAttached: Bool {
+        appState.menuBarManager.sectionsConfiguration.iceBarAttachedToMenuBar
+    }
+
+    private var clipShape: AnyInsettableShape {
+        if isAttached {
+            // Square top, softly rounded bottom, so the bar reads as an
+            // extension of the menu bar instead of a floating pill.
+            AnyInsettableShape(UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 10, bottomTrailingRadius: 10, topTrailingRadius: 0, style: .continuous))
+        } else if configuration.hasRoundedShape {
+            AnyInsettableShape(RoundedRectangle(cornerRadius: frame.height / 2, style: .circular))
         } else if #available(macOS 26.0, *) {
-            RoundedRectangle(cornerRadius: frame.height / 4, style: .continuous)
+            AnyInsettableShape(RoundedRectangle(cornerRadius: frame.height / 4, style: .continuous))
         } else {
-            RoundedRectangle(cornerRadius: frame.height / 5, style: .continuous)
+            AnyInsettableShape(RoundedRectangle(cornerRadius: frame.height / 5, style: .continuous))
         }
     }
 
@@ -358,7 +380,7 @@ private struct IceBarContentView: View {
                     .foregroundStyle(Color(cgColor: configuration.current.borderColor))
             }
         }
-        .padding(5)
+        .padding(isAttached ? 0 : 5)
         .frame(maxWidth: screen.frame.width)
         .fixedSize()
         .onFrameChange(update: $frame)

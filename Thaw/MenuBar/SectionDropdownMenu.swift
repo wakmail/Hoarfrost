@@ -19,9 +19,9 @@ import Cocoa
 final class SectionDropdownMenu: NSObject {
     private static let diagLog = DiagLog(category: "SectionDropdownMenu")
 
-    /// Largest row image height in points. Captured images keep their own
-    /// size below this so they look like they do in the menu bar.
-    private static let maxRowImageHeight: CGFloat = 22
+    /// Row image height in points. Sized to read like the menu bar without
+    /// inflating the menu's row spacing.
+    private static let rowImageHeight: CGFloat = 17
 
     private weak var appState: AppState?
     private let sectionName: MenuBarSection.Name
@@ -31,6 +31,51 @@ final class SectionDropdownMenu: NSObject {
 
     /// The dropdown currently on screen, if any.
     private(set) static weak var openMenu: NSMenu?
+
+    /// The open dropdown's frame in AppKit screen coordinates.
+    private static var openMenuFrame: NSRect = .zero
+
+    /// A listen only tap that cancels the open menu without animation the
+    /// moment a click lands outside it, killing the dismissal fade that
+    /// otherwise plays before the next section appears.
+    private static var dismissTap: EventTap?
+
+    /// Records where the menu is about to appear.
+    static func noteOpenMenuFrame(_ frame: NSRect) {
+        openMenuFrame = frame
+    }
+
+    private static func installDismissTap() {
+        dismissTap = EventTap(
+            label: "DropdownDismissTap",
+            types: [.leftMouseDown, .rightMouseDown],
+            location: .sessionEventTap,
+            placement: .headInsertEventTap,
+            option: .listenOnly
+        ) { _, event in
+            // Runs on the main run loop in a common mode, so this fires
+            // while the menu's tracking loop is spinning.
+            MainActor.assumeIsolated {
+                guard let menu = openMenu else { return }
+                let location = event.location
+                let mainHeight = CGDisplayBounds(CGMainDisplayID()).height
+                let frame = openMenuFrame
+                let cgTop = mainHeight - frame.maxY
+                let inside = location.x >= frame.minX && location.x <= frame.maxX
+                    && location.y >= cgTop && location.y <= cgTop + frame.height
+                if !inside {
+                    menu.cancelTrackingWithoutAnimation()
+                }
+            }
+            return event
+        }
+        dismissTap?.enable()
+    }
+
+    private static func removeDismissTap() {
+        dismissTap?.invalidate()
+        dismissTap = nil
+    }
 
     /// Hides the open dropdown immediately, skipping the fade out.
     static func dismissOpenMenuInstantly() {
@@ -60,8 +105,10 @@ final class SectionDropdownMenu: NSObject {
             return menu
         }
 
+        let rowFont = NSFont.menuFont(ofSize: NSFont.systemFontSize + 1)
         for item in items {
-            let row = NSMenuItem(title: item.displayName, action: #selector(activate(_:)), keyEquivalent: "")
+            let row = NSMenuItem(title: "", action: #selector(activate(_:)), keyEquivalent: "")
+            row.attributedTitle = NSAttributedString(string: item.displayName, attributes: [.font: rowFont])
             row.target = self
             row.representedObject = item
             row.image = rowImage(for: item)
@@ -93,11 +140,13 @@ final class SectionDropdownMenu: NSObject {
             guard let self, let appState else { return }
             let manager = appState.menuBarManager
             Self.openMenu = menu
+            Self.installDismissTap()
             manager.openDropdownRank = self.sectionName.rank
             controlItem.present(menu)
             manager.openDropdownRank = nil
             manager.lastDropdownDismissal = (self.sectionName.rank, Date.now)
             Self.openMenu = nil
+            Self.removeDismissTap()
             // Rebuild for the next open now that current images are in.
             self.prebuiltMenu = self.makeMenu()
         }
@@ -131,19 +180,25 @@ final class SectionDropdownMenu: NSObject {
     /// the owning app's icon when no capture exists yet.
     private func rowImage(for item: MenuBarItem) -> NSImage? {
         guard let appState else { return nil }
-        let maxHeight = Self.maxRowImageHeight
+        let height = Self.rowImageHeight
         let wantsAppIcon = appState.menuBarManager.sectionsConfiguration.dropdownShowsAppIcons
         if !wantsAppIcon, let captured = appState.imageCache.image(for: item.tag) {
-            let image = captured.nsImage
-            let size = captured.scaledSize
-            if size.height > maxHeight {
-                image.size = CGSize(width: size.width * maxHeight / size.height, height: maxHeight)
+            // The capture includes the item's transparent padding; trim it
+            // so the glyph itself fills the row height like an app icon.
+            let cgImage = captured.cgImage.trimmedToOpaqueBounds() ?? captured.cgImage
+            let size = CGSize(width: CGFloat(cgImage.width) / captured.scale, height: CGFloat(cgImage.height) / captured.scale)
+            let image = NSImage(cgImage: cgImage, size: size)
+            if size.height > 0 {
+                // Downscale only. Blowing a small glyph up to the row height
+                // makes it look thick and soft.
+                let target = min(height, size.height)
+                image.size = CGSize(width: size.width * target / size.height, height: target)
             }
             return image
         }
         if let url = item.sourceApplication?.bundleURL ?? item.owningApplication?.bundleURL {
             let icon = NSWorkspace.shared.icon(forFile: url.path)
-            icon.size = CGSize(width: maxHeight, height: maxHeight)
+            icon.size = CGSize(width: height, height: height)
             return icon
         }
         return nil
@@ -168,5 +223,48 @@ final class SectionDropdownMenu: NSObject {
                 await itemManager.temporarilyShow(item: item, clickingWith: .left, on: displayID, fastPath: true)
             }
         }
+    }
+}
+
+private extension CGImage {
+    /// The image cropped to the smallest rectangle containing every pixel
+    /// with meaningful alpha, or nil when the image is fully transparent or
+    /// unreadable. One point of padding is kept on every side.
+    func trimmedToOpaqueBounds() -> CGImage? {
+        let width = self.width
+        let height = self.height
+        guard width > 0, height > 0 else { return nil }
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue
+        ) else {
+            return nil
+        }
+        context.draw(self, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let data = context.data else { return nil }
+        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height)
+        var minX = width, maxX = -1, minY = height, maxY = -1
+        for y in 0 ..< height {
+            let rowStart = y * width
+            for x in 0 ..< width where pixels[rowStart + x] > 16 {
+                if x < minX { minX = x }
+                if x > maxX { maxX = x }
+                if y < minY { minY = y }
+                if y > maxY { maxY = y }
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return nil }
+        let rect = CGRect(
+            x: max(0, minX - 1),
+            y: max(0, minY - 1),
+            width: min(width, maxX - minX + 3),
+            height: min(height, maxY - minY + 3)
+        )
+        return cropping(to: rect)
     }
 }
