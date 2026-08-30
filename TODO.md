@@ -78,8 +78,20 @@ Known limits to fix next:
   default sections. Custom sections open by click or hotkey.
 - The always hidden section keeps its advanced toggle; custom sections are
   always in the menu bar.
-- Reveal style per section (push, bar, menu) is not modelled yet. Add a
-  `revealStyle` to `SectionDefinition` when the menu style lands.
+- Dropdown rows only left click. Right click on a row is not possible in an
+  NSMenu; consider an Option modifier later.
+- Show on hover and scroll still open rank 1 only.
+
+### 2b. Reveal styles and the combined dropdown (done, builds, not yet run)
+- `SectionRevealStyle`: automatic (follow the display's Ice Bar setting),
+  push, bar, menu. Stored per section in `SectionDefinition.revealStyle`,
+  picked in the Sections editor.
+- `SectionDropdownMenu` builds an NSMenu with a row per item (captured image
+  or app icon, item name). Choosing a row clicks the real item through
+  `temporarilyShow`, like the Ice Bar.
+- Toggle "Clicking the menu bar icon opens one dropdown with every section":
+  the app icon opens a menu with a submenu per section. Since collapsed
+  dividers sit offscreen, this gives a single visible icon.
 
 Manual test plan (quit Ice first, then run the Thaw scheme):
 1. Fresh launch shows the same three sections and dividers as before.
@@ -90,6 +102,8 @@ Manual test plan (quit Ice first, then run the Thaw scheme):
    right items stay with the right sections.
 5. Remove it. Its items move into the neighbouring section.
 6. Quit and relaunch. Everything above persists.
+7. Set a section's style to Dropdown menu, click its divider, pick an item.
+8. Turn on the combined dropdown toggle and click the app icon.
 
 ### 3. Speed
 - Backport from 2.0 in this order: `AXItemActivator` (click without fake mouse
