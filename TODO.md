@@ -105,12 +105,14 @@ Manual test plan (quit Ice first, then run the Thaw scheme):
 7. Set a section's style to Dropdown menu, click its divider, pick an item.
 8. Turn on the combined dropdown toggle and click the app icon.
 
-### 2c. Raw mode ideas (not built yet)
-- Click on empty menu bar space cycles through sections instead of toggling
-  rank 1.
-- Split empty menu bar space: left half opens one section, right half
-  another.
-- Right click on empty space already lists every section with its items.
+### 2c. Raw mode (built)
+- Empty bar click behavior is a setting: toggle the first section, cycle
+  through sections, or split halves. Cycle opens instantly by default; a
+  toggle makes it wait for multi clicks instead.
+- Right click on empty space lists every section with its items.
+- Dropdowns pop at the mouse after the button releases. The release wait is
+  the floor on dropdown latency; going lower means eating the mouse up in an
+  event tap, which is recorded here as a possible later experiment.
 
 ### 3. Speed (first piece done)
 - Backported Thaw 2.0's accessibility click delivery (`AXItemActivator`,
