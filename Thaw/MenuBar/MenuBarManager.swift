@@ -203,7 +203,7 @@ final class MenuBarManager: ObservableObject {
             }
         }
         cycleDebounceTask?.cancel()
-        let window = min(NSEvent.doubleClickInterval, 0.18)
+        let window = min(NSEvent.doubleClickInterval, 0.12)
         cycleDebounceTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(window))
             guard !Task.isCancelled, let self else { return }
