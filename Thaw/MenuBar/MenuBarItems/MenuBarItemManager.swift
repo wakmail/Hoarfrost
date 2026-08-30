@@ -2829,7 +2829,7 @@ extension MenuBarItemManager {
         // the system items, so it does not land in the middle of the bar.
         // Fall back to the visible control item, then to any visible item.
         let rightmostVisible = items
-            .filter { !$0.isControlItem && $0.canBeHidden && $0.bounds.minX >= 0 }
+            .filter { !$0.isControlItem && $0.isMovable && $0.canBeHidden && !$0.isSystemClone && $0.bounds.minX >= 0 }
             .max { $0.bounds.minX < $1.bounds.minX }
         let visibleControl = items.first(matching: .visibleControlItem)
         let targetItem = rightmostVisible ?? visibleControl ?? items.first
