@@ -9,6 +9,7 @@
 import SwiftUI
 
 struct DisplaySettingsPane: View {
+    @EnvironmentObject var appState: AppState
     @ObservedObject var displaySettings: DisplaySettingsManager
 
     var body: some View {
