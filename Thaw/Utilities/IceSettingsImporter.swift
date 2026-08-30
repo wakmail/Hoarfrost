@@ -237,6 +237,12 @@ struct ThawSettingsImporter {
             UserDefaults.standard.set(oldDomain[key.rawValue], forKey: key.rawValue)
             imported += 1
         }
+        // Divider positions live in NSStatusItem autosave keys. Without them
+        // every divider lands at the far left and nothing is hidden.
+        for (key, value) in oldDomain where key.hasPrefix("NSStatusItem ") {
+            UserDefaults.standard.set(value, forKey: key)
+            imported += 1
+        }
         diagLog.info("Imported \(imported) settings from Thaw")
     }
 }
