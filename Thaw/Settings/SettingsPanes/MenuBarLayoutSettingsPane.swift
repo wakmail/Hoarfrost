@@ -51,10 +51,12 @@ struct MenuBarLayoutSettingsPane: View {
                 Text("Sections").font(.headline)
                 ForEach(Array(appState.menuBarManager.sections.dropFirst()), id: \.name.id) { section in
                     HStack {
-                        if sectionBeingRenamed == section.name.id {
-                            TextField("Section name", text: $sectionNameDraft)
-                                .onSubmit { appState.menuBarManager.renameSection(id: section.name.id, to: sectionNameDraft); sectionBeingRenamed = nil }
-                        } else { Text(section.name.displayString) }
+                        TextField("Section name", text: Binding(
+                            get: { section.name.displayName },
+                            set: { appState.menuBarManager.renameSection(id: section.name.id, to: $0) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 160)
                         Spacer()
                         Picker("", selection: Binding(
                             get: { section.revealStyle },
@@ -66,7 +68,6 @@ struct MenuBarLayoutSettingsPane: View {
                         }
                         .labelsHidden()
                         .frame(width: 170)
-                        Button("Rename") { sectionNameDraft = section.name.displayName; sectionBeingRenamed = section.name.id }
                         Button("Up") { appState.menuBarManager.moveSection(id: section.name.id, offset: -1) }
                             .disabled(section.name.rank == 1)
                         Button("Down") { appState.menuBarManager.moveSection(id: section.name.id, offset: 1) }
