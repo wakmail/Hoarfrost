@@ -1,7 +1,7 @@
 <div align="center">
     <img src="Resources/Icon.svg" width=200 height=200>
     <h1>Hoarfrost</h1>
-    <p>A different take on the menu bar manager: more than one hidden bar.</p>
+    <p>The menu bar manager for Macs that cannot run the newest macOS. Click the empty menu bar to walk through your hidden sections, one click at a time.</p>
 </div>
 
 ![Platform](https://img.shields.io/badge/platform-macOS-blue?style=flat-square)
@@ -13,7 +13,9 @@
 
 ## The idea
 
-Ice and Thaw give you one hidden section: click the divider and everything you tucked away comes back. That works until you have thirty menu bar icons and the hidden section is as cluttered as the menu bar was.
+Hoarfrost is first and foremost for macOS 14 and 15, where Thaw 2 does not run and Ice is unmaintained. On macOS 26, Thaw remains the better choice.
+
+Ice and Thaw give you one hidden section: click the divider and everything you tucked away comes back. That works until you have thirty menu bar icons and the hidden section is as cluttered as the menu bar was. Hoarfrost's answer is sections plus the click cycle: click empty menu bar space to open your first section, click again for the next, and again to put everything away. No chevrons or icons needed in the bar at all.
 
 Hoarfrost lets you make as many groups as you want. Each group gets its own name, its own icon in the menu bar, its own hotkey, and its own way of showing up:
 
