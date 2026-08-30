@@ -29,6 +29,15 @@ final class SectionDropdownMenu: NSObject {
     /// A menu built ahead of time so the first open presents instantly.
     private var prebuiltMenu: NSMenu?
 
+    /// The dropdown currently on screen, if any.
+    private(set) static weak var openMenu: NSMenu?
+
+    /// Hides the open dropdown immediately, skipping the fade out.
+    static func dismissOpenMenuInstantly() {
+        openMenu?.cancelTrackingWithoutAnimation()
+        openMenu = nil
+    }
+
     init(appState: AppState, sectionName: MenuBarSection.Name) {
         self.appState = appState
         self.sectionName = sectionName
@@ -72,7 +81,9 @@ final class SectionDropdownMenu: NSObject {
     func show(from controlItem: ControlItem) {
         let menu = prebuiltMenu ?? makeMenu()
         prebuiltMenu = nil
+        Self.openMenu = menu
         controlItem.present(menu)
+        Self.openMenu = nil
         // Rebuild for the next open now that current images are in.
         prebuiltMenu = makeMenu()
     }

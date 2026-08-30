@@ -246,6 +246,8 @@ final class MenuBarManager: ObservableObject {
             currentPosition = 0
         }
         lastDropdownDismissal = nil
+        // A dropdown that is still fading out makes the next step look slow.
+        SectionDropdownMenu.dismissOpenMenuInstantly()
 
         diagLog.debug("performCycle: steps=\(steps) from position \(currentPosition)")
         let cycleLength = ordered.count + 1
