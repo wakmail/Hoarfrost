@@ -55,8 +55,8 @@ struct MenuBarLayoutSettingsPane: View {
                             get: { section.name.displayName },
                             set: { appState.menuBarManager.renameSection(id: section.name.id, to: $0) }
                         ))
-                        .textFieldStyle(.plain)
-                        .frame(maxWidth: 140)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 160)
                         Spacer()
                         Picker("", selection: Binding(
                             get: { section.revealStyle },
