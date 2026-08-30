@@ -78,14 +78,29 @@ final class SectionDropdownMenu: NSObject {
     }
 
     /// Presents the menu under the given control item.
+    ///
+    /// Waits for the mouse button to be released first. Popping while the
+    /// button is still down hands the menu a tracking session that the
+    /// imminent mouse up ends, so it appears and immediately fades away.
     func show(from controlItem: ControlItem) {
         let menu = prebuiltMenu ?? makeMenu()
         prebuiltMenu = nil
-        Self.openMenu = menu
-        controlItem.present(menu)
-        Self.openMenu = nil
-        // Rebuild for the next open now that current images are in.
-        prebuiltMenu = makeMenu()
+        Task { @MainActor [weak self, weak appState] in
+            let deadline = ContinuousClock.now.advanced(by: .milliseconds(500))
+            while NSEvent.pressedMouseButtons != 0, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(8))
+            }
+            guard let self, let appState else { return }
+            let manager = appState.menuBarManager
+            Self.openMenu = menu
+            manager.openDropdownRank = self.sectionName.rank
+            controlItem.present(menu)
+            manager.openDropdownRank = nil
+            manager.lastDropdownDismissal = (self.sectionName.rank, Date.now)
+            Self.openMenu = nil
+            // Rebuild for the next open now that current images are in.
+            self.prebuiltMenu = self.makeMenu()
+        }
     }
 
     /// Builds one menu with a submenu per hidden section.
