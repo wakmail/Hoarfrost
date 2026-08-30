@@ -142,7 +142,9 @@ final class SectionDropdownMenu: NSObject {
             let size = CGSize(width: CGFloat(cgImage.width) / captured.scale, height: CGFloat(cgImage.height) / captured.scale)
             let image = NSImage(cgImage: cgImage, size: size)
             if size.height > 0 {
-                let target = min(height, size.height * height / max(size.height, 1))
+                // Downscale only. Blowing a small glyph up to the row height
+                // makes it look thick and soft.
+                let target = min(height, size.height)
                 image.size = CGSize(width: size.width * target / size.height, height: target)
             }
             return image
