@@ -262,6 +262,13 @@ final class MenuBarManager: ObservableObject {
         }
     }
 
+    /// Sets whether the floating bar attaches flush to the menu bar.
+    func setIceBarAttachedToMenuBar(_ attached: Bool) {
+        sectionsConfiguration.iceBarAttachedToMenuBar = attached
+        saveSectionsConfiguration()
+        objectWillChange.send()
+    }
+
     /// Sets whether the cycle waits for extra clicks before opening.
     func setCycleWaitsForMultiClicks(_ waits: Bool) {
         sectionsConfiguration.cycleWaitsForMultiClicks = waits
