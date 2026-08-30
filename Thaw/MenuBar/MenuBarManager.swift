@@ -177,6 +177,11 @@ final class MenuBarManager: ObservableObject {
     /// after the menu closed itself.
     var lastDropdownDismissal: (rank: Int, at: Date)?
 
+    /// While set and in the future, the bar panel skips its unfold
+    /// animation. Used when the bar directly follows a dropdown, which
+    /// already pays the menu's dismissal.
+    var barUnfoldSuppressedUntil: Date?
+
     /// Clicks collected while the cycle debounce window is open.
     private var pendingCycleSteps = 0
     private var cycleDebounceTask: Task<Void, Never>?
@@ -233,11 +238,13 @@ final class MenuBarManager: ObservableObject {
         let currentPosition: Int
         if let rank = openDropdownRank, let pos = position(ofRank: rank) {
             currentPosition = pos
+            barUnfoldSuppressedUntil = Date.now.addingTimeInterval(0.5)
         } else if let dismissal = lastDropdownDismissal,
                   Date.now.timeIntervalSince(dismissal.at) < 0.6,
                   let pos = position(ofRank: dismissal.rank)
         {
             currentPosition = pos
+            barUnfoldSuppressedUntil = Date.now.addingTimeInterval(0.5)
         } else if let current = iceBarPanel.currentSection, let pos = position(ofRank: current.rank) {
             currentPosition = pos
         } else if let index = ordered.lastIndex(where: { !$0.isHidden }) {

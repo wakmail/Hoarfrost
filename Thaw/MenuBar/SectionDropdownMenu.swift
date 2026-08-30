@@ -21,7 +21,7 @@ final class SectionDropdownMenu: NSObject {
 
     /// Row image height in points. Sized to read like the menu bar without
     /// inflating the menu's row spacing.
-    private static let rowImageHeight: CGFloat = 20
+    private static let rowImageHeight: CGFloat = 19
 
     private weak var appState: AppState?
     private let sectionName: MenuBarSection.Name

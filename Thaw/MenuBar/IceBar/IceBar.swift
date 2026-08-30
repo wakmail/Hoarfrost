@@ -200,7 +200,8 @@ final class IceBarPanel: NSPanel {
         // Unfold downward from the menu bar, the dropdown flattening into
         // the bar rather than a panel blinking into place.
         let target = frame
-        if !isVisible, target.height > 1 {
+        let unfoldSuppressed = appState.menuBarManager.barUnfoldSuppressedUntil.map { Date.now < $0 } ?? false
+        if !isVisible, target.height > 1, !unfoldSuppressed {
             setFrame(NSRect(x: target.minX, y: target.maxY - 1, width: target.width, height: 1), display: false)
             orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { context in
