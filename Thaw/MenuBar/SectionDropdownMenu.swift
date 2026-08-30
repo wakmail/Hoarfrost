@@ -197,14 +197,30 @@ final class SectionDropdownMenu: NSObject {
                 let scale = min(1, height / size.height, Self.rowImageMaxWidth / size.width)
                 image.size = CGSize(width: size.width * scale, height: size.height * scale)
             }
-            return image
+            return Self.centered(image, in: CGSize(width: Self.rowImageMaxWidth + 2, height: height))
         }
         if let url = item.sourceApplication?.bundleURL ?? item.owningApplication?.bundleURL {
             let icon = NSWorkspace.shared.icon(forFile: url.path)
             icon.size = CGSize(width: height, height: height)
-            return icon
+            return Self.centered(icon, in: CGSize(width: Self.rowImageMaxWidth + 2, height: height))
         }
         return nil
+    }
+
+    /// Draws the image centered on a fixed size transparent canvas, so every
+    /// menu row's title starts at the same x and every glyph sits centered
+    /// in its column.
+    private static func centered(_ image: NSImage, in canvasSize: CGSize) -> NSImage {
+        let canvas = NSImage(size: canvasSize)
+        canvas.lockFocus()
+        let size = image.size
+        let origin = CGPoint(
+            x: (canvasSize.width - size.width) / 2,
+            y: (canvasSize.height - size.height) / 2
+        )
+        image.draw(in: CGRect(origin: origin, size: size))
+        canvas.unlockFocus()
+        return canvas
     }
 
     @objc private func activate(_ sender: NSMenuItem) {
