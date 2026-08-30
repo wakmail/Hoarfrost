@@ -75,7 +75,14 @@ struct DisplaySettingsPane: View {
                 }
             }
 
-        Toggle("Use \(Constants.displayName) Bar", isOn: useIceBar)
+        VStack(alignment: .leading, spacing: 2) {
+            Toggle("Use \(Constants.displayName) Bar", isOn: useIceBar)
+            if appState.menuBarManager.sections.contains(where: { !$0.name.isVisible && $0.revealStyle != .automatic }) {
+                Text("Only applies to sections whose reveal style is Automatic. Sections set to a specific style in Menu Bar Layout override this.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
             .annotation("Show hidden menu bar items in a separate bar below the menu bar on this display.")
 
         if useIceBar.wrappedValue {
