@@ -31,7 +31,7 @@ Why Thaw 1.3 and not 2.0: Thaw 2.0 requires macOS 26. Hoarfrost keeps macOS 14 a
 
 ## Building
 
-Open `Thaw.xcodeproj` in Xcode 16.4 or newer and build the `Thaw` scheme. The project name and bundle identifiers will change to Hoarfrost once the core work lands, so upstream changes stay easy to merge until then.
+Open `Thaw.xcodeproj` in Xcode 16.4 or newer and build the `Thaw` scheme. The built application is `Hoarfrost.app`.
 
 ## License
 

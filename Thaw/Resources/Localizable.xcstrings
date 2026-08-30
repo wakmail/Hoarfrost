@@ -792,7 +792,7 @@
         }
       }
     },
-    "%@ is currently running. Running multiple menu bar managers at the same time can cause display issues and unexpected behavior. Consider quitting %@ before using Thaw." : {
+    "%@ is currently running. Running multiple menu bar managers at the same time can cause display issues and unexpected behavior. Consider quitting %@ before using Hoarfrost." : {
       "comment" : "Informative text in the warning alert. The",
       "localizations" : {
         "cs" : {
@@ -810,7 +810,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$@ is currently running. Running multiple menu bar managers at the same time can cause display issues and unexpected behavior. Consider quitting %2$@ before using Thaw."
+            "value" : "%1$@ is currently running. Running multiple menu bar managers at the same time can cause display issues and unexpected behavior. Consider quitting %2$@ before using Hoarfrost."
           }
         },
         "es" : {
@@ -4228,7 +4228,7 @@
         }
       }
     },
-    "Apply a Thaw menu bar profile when this Focus activates." : {
+    "Apply a Hoarfrost menu bar profile when this Focus activates." : {
       "comment" : "Description of the \"Set Menu Bar Profile\" focus filter intent, including the category name.",
       "localizations" : {
         "cs" : {
@@ -21268,7 +21268,7 @@
         }
       }
     },
-    "Quit Thaw" : {
+    "Quit Hoarfrost" : {
       "comment" : "Title of the second button in an alert that warns about a conflicting menu bar manager.",
       "localizations" : {
         "cs" : {
@@ -25092,7 +25092,7 @@
         }
       }
     },
-    "Should %@ automatically check for updates? You can always check manually from the Thaw menu bar icon or Settings → About." : {
+    "Should %@ automatically check for updates? You can always check manually from the Hoarfrost menu bar icon or Settings → About." : {
       "comment" : "A description below the toggle that explains its purpose.",
       "localizations" : {
         "cs" : {
@@ -29499,7 +29499,7 @@
         }
       }
     },
-    "To switch profiles with Focus modes, add Thaw as a Focus Filter in System Settings → Focus → [Mode] → Focus Filters." : {
+    "To switch profiles with Focus modes, add Hoarfrost as a Focus Filter in System Settings → Focus → [Mode] → Focus Filters." : {
       "comment" : "A description of how to add Thaw as a Focus Filter in System Settings.",
       "localizations" : {
         "cs" : {
@@ -32710,7 +32710,7 @@
         }
       }
     },
-    "Writes detailed debug logs to a file for troubleshooting. Log files are saved to ~/Library/Logs/Thaw/. Disable when not needed to avoid unnecessary disk writes." : {
+    "Writes detailed debug logs to a file for troubleshooting. Log files are saved to ~/Library/Logs/Hoarfrost/. Disable when not needed to avoid unnecessary disk writes." : {
       "comment" : "A description of the diagnostic logging feature.",
       "localizations" : {
         "cs" : {

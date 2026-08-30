@@ -20,7 +20,7 @@ struct UpdateConsentSheet: View {
             Text("Check for updates automatically?")
                 .font(.title2.bold())
 
-            Text("Should \(Constants.displayName) automatically check for updates? You can always check manually from the Thaw menu bar icon or Settings → About.")
+            Text("Should \(Constants.displayName) automatically check for updates? You can always check manually from the Hoarfrost menu bar icon or Settings → About.")
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(.secondary)
 

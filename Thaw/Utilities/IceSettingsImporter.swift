@@ -199,3 +199,41 @@ struct IceSettingsImporter {
         return 0
     }
 }
+
+/// A type that handles importing settings from Thaw.
+@MainActor
+struct ThawSettingsImporter {
+    private let diagLog = DiagLog(category: "ThawSettingsImporter")
+    private static let thawBundleIdentifier = "com.stonerl.Thaw"
+
+    /// Imports Thaw settings when the new app has no settings of its own.
+    func importSettingsIfNeeded() {
+        guard
+            UserDefaults.standard.persistentDomain(forName: Constants.bundleIdentifier)?.isEmpty != false,
+            let oldDefaults = UserDefaults(suiteName: Self.thawBundleIdentifier),
+            let oldDomain = oldDefaults.persistentDomain(forName: Self.thawBundleIdentifier),
+            !oldDomain.isEmpty
+        else { return }
+
+        let keys: [Defaults.Key] = [
+            .showIceIcon, .iceIcon, .customIceIconIsTemplate, .useIceBar,
+            .useIceBarOnlyOnNotchedDisplay, .iceBarLocation, .iceBarLocationOnHotkey,
+            .showOnClick, .showOnDoubleClick, .showOnHover, .showOnScroll,
+            .autoRehide, .rehideStrategy, .rehideInterval, .itemSpacingOffset,
+            .displayIceBarConfigurations, .sectionsConfiguration, .hotkeys,
+            .profileHotkeys, .enableAlwaysHiddenSection, .showAllSectionsOnUserDrag,
+            .newItemsSection, .newItemsPlacementData, .sectionDividerStyle,
+            .hideApplicationMenus, .enableSecondaryContextMenu, .showOnHoverDelay,
+            .tooltipDelay, .iconRefreshInterval, .showMenuBarTooltips,
+            .enableDiagnosticLogging, .useLCSSortingOnNotchedDisplays,
+            .useOptionClickToShowAlwaysHiddenSection, .useAXClickDelivery,
+            .rememberSearchQuery, .menuBarItemCustomNames, .menuBarAppearanceConfigurationV2
+        ]
+        var imported = 0
+        for key in keys where oldDomain[key.rawValue] != nil {
+            UserDefaults.standard.set(oldDomain[key.rawValue], forKey: key.rawValue)
+            imported += 1
+        }
+        diagLog.info("Imported \(imported) settings from Thaw")
+    }
+}

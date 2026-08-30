@@ -2,15 +2,19 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleDisplayName</key>
+	<string>Hoarfrost</string>
+	<key>CFBundleName</key>
+	<string>Hoarfrost</string>
 	<key>SUFeedURL</key>
-	<string>https://stonerl.github.io/Thaw/appcast.xml</string>
+	<string>https://github.com/wakmail/Hoarfrost/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>fQ2kWqCLfAPAxQX1rp8gVNoG9hlAV/Gmm7kMBbxFe+A=</string>
+	<string></string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.stonerl.Thaw</string>
+			<string>dev.wakmail.Hoarfrost</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>thaw</string>
@@ -18,9 +22,7 @@
 		</dict>
 	</array>
 	<key>ThawRepositoryURL</key>
-	<string>https://github.com/stonerl/Thaw</string>
-	<key>ThawDonateURL</key>
-	<string>https://github.com/sponsors/stonerl</string>
+	<string>https://github.com/wakmail/Hoarfrost</string>
 	<key>ThawMenuBarItemSpacingExecutableURI</key>
 	<string>file:///usr/bin/env</string>
 </dict>

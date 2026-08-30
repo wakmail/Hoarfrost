@@ -3270,7 +3270,7 @@ extension MenuBarItemManager {
 
         // The Thaw icon must always appear in the visible section.
         if let thawIcon = leftmostItems.first(where: { $0.tag == .visibleControlItem }) {
-            MenuBarItemManager.diagLog.info("Relocating Thaw icon \(thawIcon.logString) to visible section")
+            MenuBarItemManager.diagLog.info("Relocating Hoarfrost icon \(thawIcon.logString) to visible section")
             do {
                 try await move(
                     item: thawIcon,
@@ -3278,7 +3278,7 @@ extension MenuBarItemManager {
                     skipInputPause: true
                 )
             } catch {
-                MenuBarItemManager.diagLog.error("Failed to relocate Thaw icon \(thawIcon.logString): \(error)")
+            MenuBarItemManager.diagLog.error("Failed to relocate Hoarfrost icon \(thawIcon.logString): \(error)")
                 return false
             }
             return true

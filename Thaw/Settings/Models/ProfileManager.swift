@@ -96,7 +96,7 @@ final class ProfileManager: ObservableObject {
 
         // Listen for Focus Filter activation from the system.
         DistributedNotificationCenter.default()
-            .publisher(for: Notification.Name("com.stonerl.Thaw.focusFilterActivated"))
+            .publisher(for: Notification.Name("dev.wakmail.Hoarfrost.focusFilterActivated"))
             .debounce(for: .seconds(0.5), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
@@ -106,7 +106,7 @@ final class ProfileManager: ObservableObject {
 
         // Listen for Focus Filter deactivation (Focus mode turned off).
         DistributedNotificationCenter.default()
-            .publisher(for: Notification.Name("com.stonerl.Thaw.focusFilterDeactivated"))
+            .publisher(for: Notification.Name("dev.wakmail.Hoarfrost.focusFilterDeactivated"))
             .debounce(for: .seconds(0.5), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }

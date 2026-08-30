@@ -52,11 +52,11 @@ enum ConflictingAppDetector {
             localized: """
             \(appList) is currently running. Running multiple menu bar \
             managers at the same time can cause display issues and unexpected \
-            behavior. Consider quitting \(appList) before using Thaw.
+            behavior. Consider quitting \(appList) before using Hoarfrost.
             """
         )
         alert.addButton(withTitle: String(localized: "Continue Anyway"))
-        alert.addButton(withTitle: String(localized: "Quit Thaw"))
+        alert.addButton(withTitle: String(localized: "Quit Hoarfrost"))
 
         let response = alert.runModal()
         if response == .alertSecondButtonReturn {

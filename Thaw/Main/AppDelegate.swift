@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_: Notification) {
         // Initial chore work.
         NSSplitViewItem.swizzle()
+        ThawSettingsImporter().importSettingsIfNeeded()
         MigrationManager(appState: appState).migrateAll()
 
         // Register thaw:// URL events early so external tools (e.g. Raycast)

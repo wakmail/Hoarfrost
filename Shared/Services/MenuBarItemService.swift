@@ -9,7 +9,7 @@
 import Foundation
 
 enum MenuBarItemService {
-    static let name = "com.stonerl.Thaw.MenuBarItemService"
+    static let name = "dev.wakmail.Hoarfrost.MenuBarItemService"
 }
 
 extension MenuBarItemService {
