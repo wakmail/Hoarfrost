@@ -206,10 +206,13 @@ struct ThawSettingsImporter {
     private let diagLog = DiagLog(category: "ThawSettingsImporter")
     private static let thawBundleIdentifier = "com.stonerl.Thaw"
 
-    /// Imports Thaw settings when the new app has no settings of its own.
+    private static let importedMarkerKey = "HasImportedThawSettings"
+
+    /// Imports Thaw settings once, the first time the app runs.
     func importSettingsIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.importedMarkerKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.importedMarkerKey)
         guard
-            UserDefaults.standard.persistentDomain(forName: Constants.bundleIdentifier)?.isEmpty != false,
             let oldDefaults = UserDefaults(suiteName: Self.thawBundleIdentifier),
             let oldDomain = oldDefaults.persistentDomain(forName: Self.thawBundleIdentifier),
             !oldDomain.isEmpty
