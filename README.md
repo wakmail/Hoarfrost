@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/license-GPLv3-green?style=flat-square)](LICENSE)
 
 > [!NOTE]
-> Hoarfrost is a fork of [Thaw](https://github.com/thaw-app/Thaw) by Toni Förster, which is itself a fork of [Ice](https://github.com/jordanbaird/Ice) by Jordan Baird. Nearly everything here was built by them. Hoarfrost exists to try a different idea on top of that foundation. Both projects are excellent and you should probably use one of them today.
+> Hoarfrost is a fork of [Thaw](https://github.com/thaw-app/Thaw) by Toni Förster, which is itself a fork of [Ice](https://github.com/jordanbaird/Ice) by Jordan Baird. Nearly everything here was built by them. Hoarfrost exists to try a different idea on top of that foundation, for people who like customization or with a lot of menu bar apps. Both projects are excellent, and I use them every single day.
 
 ## The idea
 
