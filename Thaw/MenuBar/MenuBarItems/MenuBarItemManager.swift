@@ -153,6 +153,9 @@ final class MenuBarItemManager: ObservableObject {
     /// (e.g. app update checks). Cleared after a fixed delay, then one final
     /// restore runs to enforce the user's saved layout.
     private var isInStartupSettling = false
+
+    /// Watches for the menu opened by a temporary show to close.
+    private var menuCloseWatchTask: Task<Void, Never>?
     /// Handle to the in-flight startup settling Task. Retained so that a
     /// subsequent performSetup() call can cancel the previous settling period
     /// before starting a new one, preventing multiple concurrent settling tasks.
@@ -2707,6 +2710,35 @@ extension MenuBarItemManager {
 
     /// Schedules a timer for the given interval that rehides the
     /// temporarily shown items when fired.
+    /// Rehides temporarily shown items as soon as the menu the click opened
+    /// has closed. Waits briefly for a menu to appear; if none does, leaves
+    /// the timer based rehide to handle it.
+    private func rehideWhenMenuCloses() {
+        menuCloseWatchTask?.cancel()
+        menuCloseWatchTask = Task { [weak self] in
+            guard let self else { return }
+            var opened = false
+            let openDeadline = ContinuousClock.now.advanced(by: .milliseconds(1500))
+            while ContinuousClock.now < openDeadline {
+                try? await Task.sleep(for: .milliseconds(100))
+                if Task.isCancelled { return }
+                if await self.isAnyMenuBarItemMenuOpen() {
+                    opened = true
+                    break
+                }
+            }
+            guard opened else { return }
+            while await self.isAnyMenuBarItemMenuOpen() {
+                try? await Task.sleep(for: .milliseconds(150))
+                if Task.isCancelled { return }
+            }
+            try? await Task.sleep(for: .milliseconds(200))
+            if Task.isCancelled { return }
+            MenuBarItemManager.diagLog.debug("Menu closed, rehiding temporarily shown items")
+            await self.rehideTemporarilyShownItems()
+        }
+    }
+
     private func runRehideTimer(for interval: TimeInterval? = nil) {
         let interval = interval ?? 15
         MenuBarItemManager.diagLog.debug("Running rehide timer for interval: \(interval)")
@@ -2793,10 +2825,14 @@ extension MenuBarItemManager {
             return
         }
 
-        // Prefer inserting to the left of the Thaw/visible control item so the icon appears
-        // where users expect. If it's missing, fall back to the first non-control item.
+        // Show the item at the right end of the third party items, next to
+        // the system items, so it does not land in the middle of the bar.
+        // Fall back to the visible control item, then to any visible item.
+        let rightmostVisible = items
+            .filter { !$0.isControlItem && $0.canBeHidden && $0.bounds.minX >= 0 }
+            .max { $0.bounds.minX < $1.bounds.minX }
         let visibleControl = items.first(matching: .visibleControlItem)
-        let targetItem = visibleControl ?? items.first(where: { !$0.isControlItem && $0.canBeHidden }) ?? items.first
+        let targetItem = rightmostVisible ?? visibleControl ?? items.first
 
         // If we couldn't find any anchor, bail gracefully.
         guard let anchor = targetItem else {
@@ -2807,7 +2843,7 @@ extension MenuBarItemManager {
             return
         }
 
-        let moveDestination: MoveDestination = .leftOfItem(anchor)
+        let moveDestination: MoveDestination = rightmostVisible != nil ? .rightOfItem(anchor) : .leftOfItem(anchor)
 
         // Record the item's original section early so we can relocate it if its app
         // quits before we get a chance to rehide it (macOS persists the
@@ -2866,6 +2902,7 @@ extension MenuBarItemManager {
         rehideTimer?.invalidate()
         defer {
             runRehideTimer()
+            rehideWhenMenuCloses()
         }
 
         let clickItem: MenuBarItem

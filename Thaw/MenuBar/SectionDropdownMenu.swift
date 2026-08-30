@@ -4,7 +4,7 @@
 //
 //  Copyright (Ice) © 2023–2025 Jordan Baird
 //  Copyright (Thaw) © 2026 Toni Förster
-//  Copyright (Hoarfrost) © 2026 Preston Chen
+//  Copyright (Hoarfrost) © 2026 wakmail
 //  Licensed under the GNU GPLv3
 
 import Cocoa
