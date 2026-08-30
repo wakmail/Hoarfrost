@@ -185,14 +185,14 @@ final class SectionDropdownMenu: NSObject {
         let height = Self.rowImageHeight
         let wantsAppIcon = appState.menuBarManager.sectionsConfiguration.dropdownShowsAppIcons
         if !wantsAppIcon, let captured = appState.imageCache.image(for: item.tag) {
-            // The capture includes the item's transparent padding; trim it
-            // so the glyph itself fills the row height like an app icon.
-            let cgImage = captured.cgImage.trimmedToOpaqueBounds() ?? captured.cgImage
+            // Every capture shares the menu bar's height, so scaling the
+            // padded image by one uniform factor keeps each glyph at its
+            // true relative size and vertical position. Only the extra
+            // transparent width is chopped off.
+            let cgImage = captured.cgImage.trimmedHorizontallyToOpaqueBounds() ?? captured.cgImage
             let size = CGSize(width: CGFloat(cgImage.width) / captured.scale, height: CGFloat(cgImage.height) / captured.scale)
             let image = NSImage(cgImage: cgImage, size: size)
             if size.height > 0, size.width > 0 {
-                // Downscale only, fitting both dimensions. Blowing a small
-                // glyph up makes it look thick and soft.
                 let scale = min(1, height / size.height, Self.rowImageMaxWidth / size.width)
                 image.size = CGSize(width: size.width * scale, height: size.height * scale)
             }
@@ -229,10 +229,10 @@ final class SectionDropdownMenu: NSObject {
 }
 
 private extension CGImage {
-    /// The image cropped to the smallest rectangle containing every pixel
-    /// with meaningful alpha, or nil when the image is fully transparent or
-    /// unreadable. One point of padding is kept on every side.
-    func trimmedToOpaqueBounds() -> CGImage? {
+    /// The image cropped horizontally to the columns containing meaningful
+    /// alpha, keeping the full height, or nil when the image is fully
+    /// transparent or unreadable. A little padding is kept on both sides.
+    func trimmedHorizontallyToOpaqueBounds() -> CGImage? {
         let width = self.width
         let height = self.height
         guard width > 0, height > 0 else { return nil }
@@ -262,10 +262,10 @@ private extension CGImage {
         }
         guard maxX >= minX, maxY >= minY else { return nil }
         let rect = CGRect(
-            x: max(0, minX - 1),
-            y: max(0, minY - 1),
-            width: min(width, maxX - minX + 3),
-            height: min(height, maxY - minY + 3)
+            x: max(0, minX - 2),
+            y: 0,
+            width: min(width, maxX - minX + 5),
+            height: height
         )
         return cropping(to: rect)
     }
