@@ -136,11 +136,14 @@ final class SectionDropdownMenu: NSObject {
         let height = Self.rowImageHeight
         let wantsAppIcon = appState.menuBarManager.sectionsConfiguration.dropdownShowsAppIcons
         if !wantsAppIcon, let captured = appState.imageCache.image(for: item.tag) {
-            let image = captured.nsImage
-            let size = captured.scaledSize
+            // The capture includes the item's transparent padding; trim it
+            // so the glyph itself fills the row height like an app icon.
+            let cgImage = captured.cgImage.trimmedToOpaqueBounds() ?? captured.cgImage
+            let size = CGSize(width: CGFloat(cgImage.width) / captured.scale, height: CGFloat(cgImage.height) / captured.scale)
+            let image = NSImage(cgImage: cgImage, size: size)
             if size.height > 0 {
-                // Fill the row height in both directions, like the bar does.
-                image.size = CGSize(width: size.width * height / size.height, height: height)
+                let target = min(height, size.height * height / max(size.height, 1))
+                image.size = CGSize(width: size.width * target / size.height, height: target)
             }
             return image
         }
@@ -171,5 +174,48 @@ final class SectionDropdownMenu: NSObject {
                 await itemManager.temporarilyShow(item: item, clickingWith: .left, on: displayID, fastPath: true)
             }
         }
+    }
+}
+
+private extension CGImage {
+    /// The image cropped to the smallest rectangle containing every pixel
+    /// with meaningful alpha, or nil when the image is fully transparent or
+    /// unreadable. One point of padding is kept on every side.
+    func trimmedToOpaqueBounds() -> CGImage? {
+        let width = self.width
+        let height = self.height
+        guard width > 0, height > 0 else { return nil }
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue
+        ) else {
+            return nil
+        }
+        context.draw(self, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let data = context.data else { return nil }
+        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height)
+        var minX = width, maxX = -1, minY = height, maxY = -1
+        for y in 0 ..< height {
+            let rowStart = y * width
+            for x in 0 ..< width where pixels[rowStart + x] > 16 {
+                if x < minX { minX = x }
+                if x > maxX { maxX = x }
+                if y < minY { minY = y }
+                if y > maxY { maxY = y }
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return nil }
+        let rect = CGRect(
+            x: max(0, minX - 1),
+            y: max(0, minY - 1),
+            width: min(width, maxX - minX + 3),
+            height: min(height, maxY - minY + 3)
+        )
+        return cropping(to: rect)
     }
 }
