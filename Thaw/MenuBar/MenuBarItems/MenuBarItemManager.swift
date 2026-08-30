@@ -156,6 +156,10 @@ final class MenuBarItemManager: ObservableObject {
 
     /// Watches for the menu opened by a temporary show to close.
     private var menuCloseWatchTask: Task<Void, Never>?
+
+    /// True while a rehide is moving items back. A second rehide or a new
+    /// temporary show must not start moves in the middle of it.
+    private var rehideInProgress = false
     /// Handle to the in-flight startup settling Task. Retained so that a
     /// subsequent performSetup() call can cancel the previous settling period
     /// before starting a new one, preventing multiple concurrent settling tasks.
@@ -2791,6 +2795,13 @@ extension MenuBarItemManager {
 
         MenuBarItemManager.diagLog.debug("temporarilyShow: started for \(item.logString)")
 
+        // Let an in flight rehide finish before moving anything else.
+        var waited = 0
+        while rehideInProgress, waited < 40 {
+            try? await Task.sleep(for: .milliseconds(50))
+            waited += 1
+        }
+
         // Determine the displayID for this item.
         let resolvedDisplayID: CGDirectDisplayID
         if let displayID {
@@ -3050,6 +3061,12 @@ extension MenuBarItemManager {
         guard !temporarilyShownItemContexts.isEmpty else {
             return
         }
+        guard !rehideInProgress else {
+            MenuBarItemManager.diagLog.debug("rehideTemporarilyShownItems: already running, skipping")
+            return
+        }
+        rehideInProgress = true
+        defer { rehideInProgress = false }
 
         MenuBarItemManager.diagLog.debug("rehideTemporarilyShownItems: started (force=\(force), isCalledFromTemporarilyShow=\(isCalledFromTemporarilyShow))")
 
