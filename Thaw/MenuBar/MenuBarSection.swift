@@ -302,6 +302,8 @@ final class MenuBarSection {
             return
         }
 
+        diagLog.debug("show: \(name.logString) revealStyle=\(revealStyle.rawValue)")
+
         if revealStyle == .menu, let appState {
             // Items stay physically hidden; the menu shows their images.
             menuBarManager.iceBarPanel.close()
@@ -339,19 +341,15 @@ final class MenuBarSection {
             }
 
             if let screen = screenForIceBar {
-                if name.rank <= 1 {
-                    menuBarManager.iceBarPanel.show(
-                        section: name,
-                        on: screen,
-                        triggeredByHotkey: triggeredByHotkey
-                    )
-                } else {
-                    menuBarManager.iceBarPanel.show(
-                        section: name,
-                        on: screen,
-                        triggeredByHotkey: triggeredByHotkey
-                    )
-                }
+                // The visible section (the app icon) opens the first hidden section.
+                let target = name.isVisible
+                    ? (menuBarManager.sections.first { $0.name.rank == 1 }?.name ?? name)
+                    : name
+                menuBarManager.iceBarPanel.show(
+                    section: target,
+                    on: screen,
+                    triggeredByHotkey: triggeredByHotkey
+                )
                 startRehideChecks()
             }
 

@@ -750,8 +750,20 @@ final class ControlItem {
     }
 
     /// Presents an arbitrary menu under the status item.
+    ///
+    /// A collapsed divider is thousands of points wide, so faking a click
+    /// on its button places the menu nowhere useful. Pop the menu at the
+    /// item's on screen frame when it has one, otherwise at the mouse.
     func present(_ menu: NSMenu) {
-        statusItem.showMenu(menu)
+        let point: NSPoint
+        if let frame = onScreenFrame {
+            point = NSPoint(x: frame.minX, y: frame.minY)
+        } else {
+            let mouse = NSEvent.mouseLocation
+            let top = NSScreen.screens.first { $0.frame.contains(mouse) }?.visibleFrame.maxY ?? mouse.y
+            point = NSPoint(x: mouse.x, y: min(mouse.y, top))
+        }
+        menu.popUp(positioning: nil, at: point, in: nil)
     }
 
     /// Toggles the menu bar section associated with the given menu item.
