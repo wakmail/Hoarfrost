@@ -494,12 +494,19 @@ extension HIDEventManager {
     }
 
     /// Whether the mouse sits in the left half of the empty menu bar space,
-    /// the stretch between the app menus and the leftmost visible item.
-    private func mouseIsInLeftHalfOfEmptySpace(appState: AppState, screen: NSScreen) -> Bool {
+    /// the stretch between the app menus and the leftmost item actually on
+    /// screen right now.
+    private func mouseIsInLeftHalfOfEmptySpace(appState _: AppState, screen: NSScreen) -> Bool {
         guard let mouse = MouseHelpers.locationAppKit else { return false }
         let low = screen.getApplicationMenuFrame()?.maxX ?? screen.frame.minX
-        let visibleItems = appState.itemManager.itemCache[.visible].filter { $0.bounds.minX >= 0 }
-        let high = visibleItems.map(\.bounds.minX).min() ?? screen.frame.maxX
+        // Measure the right edge live so expanded sections and moved items
+        // count. Menu bar item bounds are top left based; only x is used.
+        let itemWindowIDs = Bridging.getMenuBarWindowList(option: [.onScreen, .activeSpace, .itemsOnly])
+        let high = itemWindowIDs
+            .compactMap { Bridging.getWindowBounds(for: $0) }
+            .filter { $0.minX >= 0 && $0.minX > low }
+            .map(\.minX)
+            .min() ?? screen.frame.maxX
         guard high > low else { return false }
         return mouse.x < (low + high) / 2
     }
