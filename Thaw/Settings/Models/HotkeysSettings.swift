@@ -17,7 +17,7 @@ final class HotkeysSettings: ObservableObject {
     let registry = HotkeyRegistry()
 
     /// The app's hotkeys.
-    let hotkeys = HotkeyAction.settingsActions.map { action in
+    var hotkeys = HotkeyAction.settingsActions.map { action in
         Hotkey(action: action)
     }
 
@@ -36,11 +36,35 @@ final class HotkeysSettings: ObservableObject {
     /// Performs the initial setup of the model.
     func performSetup(with appState: AppState) {
         self.appState = appState
+        let customActions = appState.menuBarManager.sections
+            .filter { !$0.name.isDefault }
+            .compactMap { $0.name.hotkeyAction }
+        hotkeys.append(contentsOf: customActions.map { Hotkey(action: $0) })
         for hotkey in hotkeys {
             hotkey.performSetup(with: appState)
         }
         loadInitialState()
         configureCancellables()
+    }
+
+    /// Creates and registers a hotkey for a section added at runtime.
+    func addHotkey(for action: HotkeyAction) {
+        guard let appState, hotkey(withAction: action) == nil else { return }
+        let hotkey = Hotkey(action: action)
+        hotkeys.append(hotkey)
+        hotkey.performSetup(with: appState)
+        observe(hotkey)
+    }
+
+    /// Unregisters and forgets the hotkey for a removed section.
+    func removeHotkey(for action: HotkeyAction) {
+        guard let index = hotkeys.firstIndex(where: { $0.action == action }) else { return }
+        let hotkey = hotkeys.remove(at: index)
+        hotkey.keyCombination = nil
+        withMutableCopy(of: Defaults.dictionary(forKey: .hotkeys) ?? [:]) { dictionary in
+            dictionary[action.rawValue] = nil
+            Defaults.set(dictionary, forKey: .hotkeys)
+        }
     }
 
     /// Loads the model's initial state.
@@ -67,26 +91,28 @@ final class HotkeysSettings: ObservableObject {
 
     /// Configures the internal observers for the model.
     private func configureCancellables() {
-        var c = Set<AnyCancellable>()
-
+        cancellables.removeAll()
         for hotkey in hotkeys {
-            hotkey.$keyCombination
-                .encode(encoder: encoder)
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] completion in
-                    if case let .failure(error) = completion {
-                        self?.diagLog.error("Error encoding hotkey: \(error)")
-                    }
-                } receiveValue: { data in
-                    withMutableCopy(of: Defaults.dictionary(forKey: .hotkeys) ?? [:]) { dictionary in
-                        dictionary[hotkey.action.rawValue] = data
-                        Defaults.set(dictionary, forKey: .hotkeys)
-                    }
-                }
-                .store(in: &c)
+            observe(hotkey)
         }
+    }
 
-        cancellables = c
+    /// Persists the hotkey's key combination whenever it changes.
+    private func observe(_ hotkey: Hotkey) {
+        hotkey.$keyCombination
+            .encode(encoder: encoder)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                if case let .failure(error) = completion {
+                    self?.diagLog.error("Error encoding hotkey: \(error)")
+                }
+            } receiveValue: { data in
+                withMutableCopy(of: Defaults.dictionary(forKey: .hotkeys) ?? [:]) { dictionary in
+                    dictionary[hotkey.action.rawValue] = data
+                    Defaults.set(dictionary, forKey: .hotkeys)
+                }
+            }
+            .store(in: &cancellables)
     }
 
     /// Returns the hotkey with the given action.

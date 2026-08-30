@@ -399,12 +399,7 @@ final class ProfileManager: ObservableObject {
         var itemOrder = [String: [String]]()
         let cache = appState.itemManager.itemCache
         for section in MenuBarSection.Name.allCases {
-            let sectionKey: String
-            switch section {
-            case .visible: sectionKey = "visible"
-            case .hidden: sectionKey = "hidden"
-            case .alwaysHidden: sectionKey = "alwaysHidden"
-            }
+            let sectionKey = section.id
             var orderedIDs = [String]()
             for item in cache.managedItems(for: section)
                 where item.canBeHidden || item.isControlItem

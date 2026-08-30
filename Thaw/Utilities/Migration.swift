@@ -109,11 +109,11 @@ extension MigrationManager {
                 modifiers: Modifiers(rawValue: modifiers)
             )
             let hotkeysSettings = appState.settings.hotkeys
-            if case .hidden = name {
+            if name == .hidden {
                 if let hotkey = hotkeysSettings.hotkey(withAction: .toggleHiddenSection) {
                     hotkey.keyCombination = keyCombination
                 }
-            } else if case .alwaysHidden = name {
+            } else if name == .alwaysHidden {
                 if let hotkey = hotkeysSettings.hotkey(withAction: .toggleAlwaysHiddenSection) {
                     hotkey.keyCombination = keyCombination
                 }
@@ -148,14 +148,7 @@ extension MigrationManager {
                 continue
             }
 
-            let identifier = switch name {
-            case .visible:
-                ControlItem.Identifier.visible.rawValue0_8_0
-            case .hidden:
-                ControlItem.Identifier.hidden.rawValue0_8_0
-            case .alwaysHidden:
-                ControlItem.Identifier.alwaysHidden.rawValue0_8_0
-            }
+            let identifier = name == .visible ? ControlItem.Identifier.visible.rawValue0_8_0 : name == .hidden ? ControlItem.Identifier.hidden.rawValue0_8_0 : ControlItem.Identifier.alwaysHidden.rawValue0_8_0
 
             // add the "identifier" key to the dictionary
             controlItemDict["identifier"] = identifier
@@ -503,19 +496,15 @@ extension MigrationManager {
 
 private extension ControlItem.Identifier {
     var rawValue0_8_0: String {
-        switch self {
-        case .visible: "IceIcon"
-        case .hidden: "HItem"
-        case .alwaysHidden: "AHItem"
-        }
+        if self == .visible { return "IceIcon" }
+        if self == .hidden { return "HItem" }
+        return "AHItem"
     }
 
     var rawValue0_10_0: String {
-        switch self {
-        case .visible: "SItem"
-        case .hidden: "HItem"
-        case .alwaysHidden: "AHItem"
-        }
+        if self == .visible { return "SItem" }
+        if self == .hidden { return "HItem" }
+        return "AHItem"
     }
 }
 
@@ -523,10 +512,8 @@ private extension ControlItem.Identifier {
 
 private extension MenuBarSection.Name {
     var rawValue0_8_0: String {
-        switch self {
-        case .visible: "Visible"
-        case .hidden: "Hidden"
-        case .alwaysHidden: "Always Hidden"
-        }
+        if id == "visible" { return "Visible" }
+        if id == "hidden" { return "Hidden" }
+        return "Always Hidden"
     }
 }

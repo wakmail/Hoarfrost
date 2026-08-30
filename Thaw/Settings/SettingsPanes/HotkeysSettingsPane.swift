@@ -15,8 +15,9 @@ struct HotkeysSettingsPane: View {
     var body: some View {
         IceForm {
             IceSection("Menu Bar Sections") {
-                hotkeyRecorder(forSection: .hidden)
-                hotkeyRecorder(forSection: .alwaysHidden)
+                ForEach(appState.menuBarManager.sections.dropFirst(), id: \.name.id) { section in
+                    hotkeyRecorder(forSection: section.name)
+                }
             }
             IceSection("Menu Bar Items") {
                 hotkeyRecorder(forAction: .searchMenuBarItems)
@@ -44,6 +45,8 @@ struct HotkeysSettingsPane: View {
                     Text("Toggle the hidden section")
                 case .toggleAlwaysHiddenSection:
                     Text("Toggle the always-hidden section")
+                case .toggleSection(let id):
+                    Text("Toggle the \(appState.menuBarManager.sections.first { $0.name.id == id }?.name.displayString ?? "section") section")
                 case .searchMenuBarItems:
                     Text("Search menu bar items")
                 case .enableIceBar:
@@ -68,12 +71,8 @@ struct HotkeysSettingsPane: View {
 
     @ViewBuilder
     private func hotkeyRecorder(forSection name: MenuBarSection.Name) -> some View {
-        if appState.menuBarManager.section(withName: name)?.isEnabled == true {
-            if case .hidden = name {
-                hotkeyRecorder(forAction: .toggleHiddenSection)
-            } else if case .alwaysHidden = name {
-                hotkeyRecorder(forAction: .toggleAlwaysHiddenSection)
-            }
+        if appState.menuBarManager.section(withName: name)?.isEnabled == true, let action = name.hotkeyAction {
+            hotkeyRecorder(forAction: action)
         }
     }
 }

@@ -63,11 +63,9 @@ final class MenuBarManager: ObservableObject {
     let appearanceEditorPanel = MenuBarAppearanceEditorPanel()
 
     /// The managed sections in the menu bar.
-    let sections = [
-        MenuBarSection(name: .visible),
-        MenuBarSection(name: .hidden),
-        MenuBarSection(name: .alwaysHidden),
-    ]
+    @Published private(set) var sections: [MenuBarSection] = []
+
+    private var sectionsConfiguration: SectionsConfiguration = .defaults
 
     /// A Boolean value that indicates whether at least one of the manager's
     /// sections is visible.
@@ -78,12 +76,117 @@ final class MenuBarManager: ObservableObject {
     /// Performs the initial setup of the menu bar manager.
     func performSetup(with appState: AppState) {
         self.appState = appState
+        if let data = Defaults.data(forKey: .sectionsConfiguration),
+           let configuration = try? JSONDecoder().decode(SectionsConfiguration.self, from: data),
+           !configuration.hiddenSections.isEmpty
+        {
+            sectionsConfiguration = configuration
+        }
+        let names = [MenuBarSection.Name.visible] + sectionsConfiguration.hiddenSections.enumerated().map { index, definition in
+            MenuBarSection.Name(id: definition.id, rank: index + 1, displayName: definition.displayName)
+        }
+        sections = names.map(MenuBarSection.init(name:))
+        publishConfiguredNames()
         configureCancellables()
         iceBarPanel.performSetup(with: appState)
         searchPanel.performSetup(with: appState)
         appearanceEditorPanel.performSetup(with: appState)
         for section in sections {
             section.performSetup(with: appState)
+        }
+    }
+
+    func saveSectionsConfiguration() {
+        guard let data = try? JSONEncoder().encode(sectionsConfiguration) else { return }
+        Defaults.set(data, forKey: .sectionsConfiguration)
+    }
+
+    /// Mirrors the current section list into `MenuBarSection.Name.configured`
+    /// so code that runs off the main actor sees the same sections.
+    private func publishConfiguredNames() {
+        MenuBarSection.Name.configured = sections.map(\.name)
+    }
+
+    /// Recomputes ranks from the configuration order and sorts sections.
+    private func applyRanks() {
+        for (index, definition) in sectionsConfiguration.hiddenSections.enumerated() {
+            sections.first { $0.name.id == definition.id }?.name.rank = index + 1
+        }
+        sections.sort { $0.name < $1.name }
+        publishConfiguredNames()
+    }
+
+    /// Adds a new hidden section at the deepest rank.
+    func addSection() {
+        guard let appState else { return }
+        let id = UUID().uuidString
+        let definition = SectionDefinition(
+            id: id,
+            displayName: "New Section",
+            controlItemAutosaveName: "Thaw.ControlItem.Section.\(id)",
+            hotkeyActionID: "ToggleSection.\(id)"
+        )
+        sectionsConfiguration.hiddenSections.append(definition)
+        let name = MenuBarSection.Name(id: id, rank: sectionsConfiguration.hiddenSections.count, displayName: definition.displayName)
+        let section = MenuBarSection(name: name)
+        sections.append(section)
+        section.performSetup(with: appState)
+        section.controlItem.addToMenuBar()
+        if let action = name.hotkeyAction {
+            appState.settings.hotkeys.addHotkey(for: action)
+        }
+        applyRanks()
+        saveSectionsConfiguration()
+        Task {
+            await appState.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
+        }
+    }
+
+    func renameSection(id: String, to displayName: String) {
+        guard let index = sectionsConfiguration.hiddenSections.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        sectionsConfiguration.hiddenSections[index].displayName = trimmed
+        sections.first { $0.name.id == id }?.name.displayName = trimmed
+        publishConfiguredNames()
+        saveSectionsConfiguration()
+    }
+
+    func moveSection(id: String, offset: Int) {
+        guard let index = sectionsConfiguration.hiddenSections.firstIndex(where: { $0.id == id }) else { return }
+        let newIndex = index + offset
+        guard sectionsConfiguration.hiddenSections.indices.contains(newIndex) else { return }
+        sectionsConfiguration.hiddenSections.swapAt(index, newIndex)
+        applyRanks()
+        saveSectionsConfiguration()
+        // Divider order in the menu bar must follow the new ranks.
+        Task {
+            await appState?.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
+        }
+    }
+
+    /// Removes a section after moving its items into the next shallower one.
+    /// The two default sections cannot be removed.
+    func removeSection(id: String) {
+        guard
+            let appState,
+            let section = sections.first(where: { $0.name.id == id }),
+            !section.name.isDefault,
+            let index = sectionsConfiguration.hiddenSections.firstIndex(where: { $0.id == id })
+        else {
+            return
+        }
+        Task {
+            await appState.itemManager.relocateItems(from: section.name)
+            section.controlItem.removeFromMenuBar()
+            if let action = section.name.hotkeyAction {
+                appState.settings.hotkeys.removeHotkey(for: action)
+            }
+            sectionsConfiguration.hiddenSections.remove(at: index)
+            sections.removeAll { $0.name.id == id }
+            applyRanks()
+            saveSectionsConfiguration()
+            await appState.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
         }
     }
 
@@ -232,15 +335,13 @@ final class MenuBarManager: ObservableObject {
                     return
                 }
 
-                // Check if hidden or alwaysHidden section is being shown
-                let hiddenSection = self.section(withName: .hidden)
-                let alwaysHiddenSection = self.section(withName: .alwaysHidden)
+                // The deepest section currently shown decides how far the
+                // menu bar expands. Shown means isHidden is false.
+                let deepestShown = self.sections
+                    .filter { !$0.name.isVisible && !$0.isHidden }
+                    .max { $0.name.rank < $1.name.rank }
 
-                // Use isHidden property - when section is shown, isHidden is false
-                let isShowingHiddenSection = hiddenSection.map { !$0.isHidden } ?? false
-                let isShowingAlwaysHiddenSection = alwaysHiddenSection.map { !$0.isHidden } ?? false
-
-                if isShowingHiddenSection || isShowingAlwaysHiddenSection {
+                if let deepestShown {
                     // Use the screen with the active menu bar
                     guard let screen = NSScreen.screenWithActiveMenuBar ?? NSScreen.main else {
                         return
@@ -264,25 +365,15 @@ final class MenuBarManager: ObservableObject {
                             abs(item.bounds.origin.y - menuBarY) < 50
                         }
 
-                        // Get the control items for this screen
-                        let hiddenControlItem = screenItems.first { $0.tag == .hiddenControlItem }
-                        let alwaysHiddenControlItem = screenItems.first { $0.tag == .alwaysHiddenControlItem }
-
-                        // Approximate hidden items width from control item positions.
-
-                        // Get control item bounds and hidden items width
+                        // The shown section's divider on this screen, and the
+                        // width of the items it reveals.
                         var controlBounds: CGRect = .zero
                         var hiddenItemsWidth: CGFloat = 0
-
-                        if isShowingAlwaysHiddenSection, let ahControl = alwaysHiddenControlItem {
-                            controlBounds = ahControl.bounds
+                        let dividerTag = MenuBarItemTag(controlItem: deepestShown.name.controlItemIdentifier)
+                        if let control = screenItems.first(where: { $0.tag == dividerTag }) {
+                            controlBounds = control.bounds
                             if let appState = self.appState {
-                                hiddenItemsWidth = appState.itemManager.itemCache[.alwaysHidden].reduce(0) { $0 + $1.bounds.width }
-                            }
-                        } else if isShowingHiddenSection, let hControl = hiddenControlItem {
-                            controlBounds = hControl.bounds
-                            if let appState = self.appState {
-                                hiddenItemsWidth = appState.itemManager.itemCache[.hidden].reduce(0) { $0 + $1.bounds.width }
+                                hiddenItemsWidth = appState.itemManager.itemCache[deepestShown.name].reduce(0) { $0 + $1.bounds.width }
                             }
                         }
 

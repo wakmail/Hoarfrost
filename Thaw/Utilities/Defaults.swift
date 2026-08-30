@@ -214,6 +214,7 @@ extension Defaults {
         case rehideInterval = "RehideInterval"
         case itemSpacingOffset = "ItemSpacingOffset"
         case displayIceBarConfigurations = "DisplayIceBarConfigurations"
+        case sectionsConfiguration = "SectionsConfiguration"
 
         // MARK: Hotkeys Settings
 

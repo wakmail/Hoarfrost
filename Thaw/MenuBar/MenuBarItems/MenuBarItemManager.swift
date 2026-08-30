@@ -337,7 +337,7 @@ final class MenuBarItemManager: ObservableObject {
         // Build a set of all identifiers currently in the cache (only primary items)
         var allCurrentIdentifiers = Set<String>()
         var allCurrentBaseIdentifiers = Set<String>()
-        for section in MenuBarSection.Name.allCases {
+        for section in appState?.menuBarManager.sections.map { $0.name } ?? MenuBarSection.Name.allCases {
             for item in cache[section] where !item.isControlItem && item.tag.instanceIndex == 0 {
                 let uniqueID = item.uniqueIdentifier
                 allCurrentIdentifiers.insert(uniqueID)
@@ -348,7 +348,7 @@ final class MenuBarItemManager: ObservableObject {
             }
         }
 
-        for section in MenuBarSection.Name.allCases {
+        for section in appState?.menuBarManager.sections.map { $0.name } ?? MenuBarSection.Name.allCases {
             // Start with current identifiers for this section (only primary items)
             var identifiers = cache[section]
                 .filter { !$0.isControlItem && $0.tag.instanceIndex == 0 }
@@ -385,28 +385,19 @@ final class MenuBarItemManager: ObservableObject {
 
     /// Returns a persistable string key for the given section name.
     private func sectionKey(for section: MenuBarSection.Name) -> String {
-        switch section {
-        case .visible: "visible"
-        case .hidden: "hidden"
-        case .alwaysHidden: "alwaysHidden"
-        }
+        section.id
     }
 
     /// Returns the section name for the given persisted key, if valid.
     private func sectionName(for key: String) -> MenuBarSection.Name? {
-        switch key {
-        case "visible": .visible
-        case "hidden": .hidden
-        case "alwaysHidden": .alwaysHidden
-        default: nil
-        }
+        appState?.menuBarManager.sections.first { $0.name.id == key }?.name
     }
 
     /// Returns the effective section for newly detected menu bar items, falling back
     /// to hidden when the always-hidden section is currently disabled.
     var effectiveNewItemsSection: MenuBarSection.Name {
         let preferredSection = sectionName(for: newItemsPlacement.sectionKey) ?? .hidden
-        if preferredSection == .alwaysHidden, appState?.settings.advanced.enableAlwaysHiddenSection != true {
+        if preferredSection.rank == 2, appState?.settings.advanced.enableAlwaysHiddenSection != true {
             return .hidden
         }
         return preferredSection
@@ -445,7 +436,7 @@ final class MenuBarItemManager: ObservableObject {
         arrangedViews: [LayoutBarArrangedView]
     ) {
         let resolvedSection: MenuBarSection.Name
-        if section == .alwaysHidden, appState?.settings.advanced.enableAlwaysHiddenSection != true {
+        if section.rank == 2, appState?.settings.advanced.enableAlwaysHiddenSection != true {
             resolvedSection = .hidden
         } else {
             resolvedSection = section
@@ -506,7 +497,7 @@ final class MenuBarItemManager: ObservableObject {
 
     /// Returns the move destination that inserts a new item into the preferred section.
     private func newItemsMoveDestination(
-        for controlItems: ControlItemPair,
+        for controlItems: ControlItemSet,
         among items: [MenuBarItem]
     ) -> MoveDestination {
         let targetSection = effectiveNewItemsSection
@@ -538,26 +529,9 @@ final class MenuBarItemManager: ObservableObject {
             }
         }
 
-        switch targetSection {
-        case .visible:
-            return .rightOfItem(controlItems.hidden)
-        case .hidden:
-            if appState?.settings.advanced.enableAlwaysHiddenSection == true {
-                if let alwaysHidden = controlItems.alwaysHidden {
-                    return .rightOfItem(alwaysHidden)
-                } else {
-                    return .leftOfItem(controlItems.hidden)
-                }
-            } else {
-                return .leftOfItem(controlItems.hidden)
-            }
-        case .alwaysHidden:
-            if let alwaysHidden = controlItems.alwaysHidden {
-                return .leftOfItem(alwaysHidden)
-            } else {
-                return .leftOfItem(controlItems.hidden)
-            }
-        }
+        // New items land at the left edge of their section when a deeper
+        // divider exists, otherwise right next to the section's own divider.
+        return leftmostDestination(in: targetSection.rank, controlItems: controlItems)
     }
 
     private func persistedNewItemsAnchorIdentifier(for item: MenuBarItem) -> String {
@@ -607,15 +581,14 @@ final class MenuBarItemManager: ObservableObject {
     }
 
     private func defaultNewItemsBadgeIndex(in section: MenuBarSection.Name, itemCount: Int) -> Int {
-        switch section {
-        case .visible:
+        if section.isVisible {
             return 0
-        case .hidden:
-            if appState?.settings.advanced.enableAlwaysHiddenSection == true {
-                return 0
-            }
-            return itemCount
-        case .alwaysHidden:
+        }
+        let deeperExists = MenuBarSection.Name.allCases.contains { $0.rank == section.rank + 1 }
+        let deeperEnabled = section.rank != 1 || appState?.settings.advanced.enableAlwaysHiddenSection == true
+        if deeperExists, deeperEnabled {
+            return 0
+        } else {
             return itemCount
         }
     }
@@ -738,7 +711,7 @@ final class MenuBarItemManager: ObservableObject {
                     return
                 }
                 Task {
-                    await self.appState?.imageCache.updateCache(sections: MenuBarSection.Name.allCases)
+                    await self.appState?.imageCache.updateCache(sections: appState.menuBarManager.sections.map { $0.name })
                 }
             }
             .store(in: &c)
@@ -757,7 +730,7 @@ final class MenuBarItemManager: ObservableObject {
                     return
                 }
                 Task {
-                    await self.appState?.imageCache.updateCache(sections: MenuBarSection.Name.allCases)
+                    await self.appState?.imageCache.updateCache(sections: appState.menuBarManager.sections.map { $0.name })
                 }
             }
             .store(in: &c)
@@ -824,10 +797,11 @@ extension MenuBarItemManager {
         /// The identifier of the display with the active menu bar at
         /// the time this cache was created.
         let displayID: CGDirectDisplayID?
+        let sections: [MenuBarSection.Name]
 
         /// The cached menu bar items as an array.
         var managedItems: [MenuBarItem] {
-            MenuBarSection.Name.allCases.reduce(into: []) { result, section in
+            sections.reduce(into: []) { result, section in
                 guard let items = storage[section] else {
                     return
                 }
@@ -836,8 +810,9 @@ extension MenuBarItemManager {
         }
 
         /// Creates a cache with the given display identifier.
-        init(displayID: CGDirectDisplayID?) {
+        init(displayID: CGDirectDisplayID?, sections: [MenuBarSection.Name] = MenuBarSection.Name.allCases) {
             self.displayID = displayID
+            self.sections = sections
         }
 
         /// Returns the managed menu bar items for the given section.
@@ -862,22 +837,18 @@ extension MenuBarItemManager {
         mutating func insert(_ item: MenuBarItem, at destination: MoveDestination) {
             let targetTag = destination.targetItem.tag
 
-            if targetTag == .hiddenControlItem {
+            // The target is a section divider: left of it is the end of that
+            // section, right of it is the start of the next shallower one.
+            if let dividerSection = sections.first(where: {
+                !$0.isVisible && MenuBarItemTag(controlItem: $0.controlItemIdentifier) == targetTag
+            }) {
                 switch destination {
                 case .leftOfItem:
-                    self[.hidden].append(item)
+                    self[dividerSection].append(item)
                 case .rightOfItem:
-                    self[.visible].insert(item, at: 0)
-                }
-                return
-            }
-
-            if targetTag == .alwaysHiddenControlItem {
-                switch destination {
-                case .leftOfItem:
-                    self[.alwaysHidden].append(item)
-                case .rightOfItem:
-                    self[.hidden].insert(item, at: 0)
+                    if let shallower = sections.first(where: { $0.rank == dividerSection.rank - 1 }) {
+                        self[shallower].insert(item, at: 0)
+                    }
                 }
                 return
             }
@@ -903,9 +874,12 @@ extension MenuBarItemManager {
 
     /// A pair of control items, taken from a list of menu bar items
     /// during a menu bar item cache operation.
-    private struct ControlItemPair {
-        let hidden: MenuBarItem
-        let alwaysHidden: MenuBarItem?
+    private struct ControlItemSet {
+        let dividers: [MenuBarItem]
+        var hidden: MenuBarItem { dividers[0] }
+        var alwaysHidden: MenuBarItem? { divider(rank: 2) }
+        func divider(rank: Int) -> MenuBarItem? { rank >= 1 && rank <= dividers.count ? dividers[rank - 1] : nil }
+        func deepestDivider(upTo rank: Int) -> MenuBarItem { dividers[min(max(rank, 1), dividers.count) - 1] }
 
         /// Creates a control item pair from a list of menu bar items.
         ///
@@ -920,14 +894,23 @@ extension MenuBarItemManager {
         init?(
             items: inout [MenuBarItem],
             hiddenControlItemWindowID: CGWindowID? = nil,
-            alwaysHiddenControlItemWindowID: CGWindowID? = nil
+            alwaysHiddenControlItemWindowID: CGWindowID? = nil,
+            sections: [MenuBarSection.Name] = MenuBarSection.Name.allCases
         ) {
-            // Primary lookup: match by tag (namespace + title).
-            if let hidden = items.removeFirst(matching: .hiddenControlItem) {
-                self.hidden = hidden
-                self.alwaysHidden = items.removeFirst(matching: .alwaysHiddenControlItem)
+            var found = [(rank: Int, item: MenuBarItem)]()
+            for section in sections where !section.isVisible {
+                let tag = MenuBarItemTag(controlItem: section.controlItemIdentifier)
+                if let item = items.removeFirst(matching: tag) {
+                    found.append((section.rank, item))
+                }
+            }
+            // Rank 1 is required; deeper dividers are optional (a section can
+            // be disabled or not yet placed by the system).
+            if found.contains(where: { $0.rank == 1 }) {
+                self.dividers = found.sorted { $0.rank < $1.rank }.map(\.item)
                 return
             }
+            items.append(contentsOf: found.map(\.item))
 
             // Fallback 1: match by sourcePID (our own process) + known title.
             let ourPID = ProcessInfo.processInfo.processIdentifier
@@ -935,12 +918,11 @@ extension MenuBarItemManager {
             let alwaysHiddenTitle = ControlItem.Identifier.alwaysHidden.rawValue
 
             if let idx = items.firstIndex(where: { $0.sourcePID == ourPID && $0.title == hiddenTitle }) {
-                self.hidden = items.remove(at: idx)
+                var fallback = [items.remove(at: idx)]
                 if let ahIdx = items.firstIndex(where: { $0.sourcePID == ourPID && $0.title == alwaysHiddenTitle }) {
-                    self.alwaysHidden = items.remove(at: ahIdx)
-                } else {
-                    self.alwaysHidden = nil
+                    fallback.append(items.remove(at: ahIdx))
                 }
+                self.dividers = fallback
                 return
             }
 
@@ -950,14 +932,13 @@ extension MenuBarItemManager {
             if let hiddenWID = hiddenControlItemWindowID,
                let idx = items.firstIndex(where: { $0.windowID == hiddenWID })
             {
-                self.hidden = items.remove(at: idx)
+                var fallback = [items.remove(at: idx)]
                 if let ahWID = alwaysHiddenControlItemWindowID,
                    let ahIdx = items.firstIndex(where: { $0.windowID == ahWID })
                 {
-                    self.alwaysHidden = items.remove(at: ahIdx)
-                } else {
-                    self.alwaysHidden = nil
+                    fallback.append(items.remove(at: ahIdx))
                 }
+                self.dividers = fallback
                 return
             }
 
@@ -967,19 +948,20 @@ extension MenuBarItemManager {
 
     /// Context maintained during a menu bar item cache operation.
     private struct CacheContext {
-        let controlItems: ControlItemPair
+        let controlItems: ControlItemSet
 
         var cache: ItemCache
         var temporarilyShownItems = [(MenuBarItem, MoveDestination)]()
         var shouldClearCachedItemWindowIDs = false
         var relocatedItems = [MenuBarItem]()
 
-        private(set) lazy var hiddenControlItemBounds = bestBounds(for: controlItems.hidden)
+        private(set) lazy var dividerBounds = controlItems.dividers.map(bestBounds)
+        private(set) lazy var hiddenControlItemBounds = dividerBounds[0]
         private(set) lazy var alwaysHiddenControlItemBounds = controlItems.alwaysHidden.map(bestBounds)
 
-        init(controlItems: ControlItemPair, displayID: CGDirectDisplayID?) {
+        init(controlItems: ControlItemSet, displayID: CGDirectDisplayID?) {
             self.controlItems = controlItems
-            self.cache = ItemCache(displayID: displayID)
+            self.cache = ItemCache(displayID: displayID, sections: MenuBarSection.Name.allCases)
         }
 
         func bestBounds(for item: MenuBarItem) -> CGRect {
@@ -1004,25 +986,8 @@ extension MenuBarItemManager {
 
         mutating func findSection(for item: MenuBarItem) -> MenuBarSection.Name? {
             lazy var itemBounds = bestBounds(for: item)
-            return MenuBarSection.Name.allCases.first { section in
-                switch section {
-                case .visible:
-                    return itemBounds.minX >= hiddenControlItemBounds.maxX
-                case .hidden:
-                    if let alwaysHiddenControlItemBounds {
-                        return itemBounds.maxX <= hiddenControlItemBounds.minX &&
-                            itemBounds.minX >= alwaysHiddenControlItemBounds.maxX
-                    } else {
-                        return itemBounds.maxX <= hiddenControlItemBounds.minX
-                    }
-                case .alwaysHidden:
-                    if let alwaysHiddenControlItemBounds {
-                        return itemBounds.maxX <= alwaysHiddenControlItemBounds.minX
-                    } else {
-                        return false
-                    }
-                }
-            }
+            let rank = dividerBounds.filter { $0.minX >= itemBounds.maxX }.count
+            return cache.sections.first { $0.rank == rank } ?? cache.sections.last
         }
     }
 
@@ -1030,7 +995,7 @@ extension MenuBarItemManager {
     /// control items are correctly ordered.
     private func uncheckedCacheItems(
         items: [MenuBarItem],
-        controlItems: ControlItemPair,
+        controlItems: ControlItemSet,
         displayID: CGDirectDisplayID?
     ) async {
         MenuBarItemManager.diagLog.debug("uncheckedCacheItems: processing \(items.count) items for caching")
@@ -1193,7 +1158,7 @@ extension MenuBarItemManager {
             }
 
             // Obtain window IDs from the actual ControlItem objects so the
-            // fallback lookup in ControlItemPair can match by window ID when
+            // fallback lookup in ControlItemSet can match by window ID when
             // the tag-based and title-based lookups fail (macOS 26+).
             let hiddenControlItemWID: CGWindowID? = appState?.menuBarManager
                 .controlItem(withName: .hidden)?.window
@@ -1202,7 +1167,7 @@ extension MenuBarItemManager {
                 .controlItem(withName: .alwaysHidden)?.window
                 .flatMap { CGWindowID(exactly: $0.windowNumber) }
 
-            guard let controlItems = ControlItemPair(
+            guard let controlItems = ControlItemSet(
                 items: &items,
                 hiddenControlItemWindowID: hiddenControlItemWID,
                 alwaysHiddenControlItemWindowID: alwaysHiddenControlItemWID
@@ -2973,23 +2938,20 @@ extension MenuBarItemManager {
             falling back to section-level destination for \(context.originalSection.logString)
             """
         )
-        switch context.originalSection {
-        case .hidden:
-            if let controlItem = items.first(matching: .hiddenControlItem) {
-                return .leftOfItem(controlItem)
-            }
-        case .alwaysHidden:
-            if let controlItem = items.first(matching: .alwaysHiddenControlItem) {
-                return .leftOfItem(controlItem)
-            }
-            // If the always-hidden section was disabled, fall back to hidden.
-            if let controlItem = items.first(matching: .hiddenControlItem) {
-                return .leftOfItem(controlItem)
-            }
-        case .visible:
+        if context.originalSection.isVisible {
             // Should not happen (we don't temporarily show items that are
             // already visible), but handle it gracefully.
             return nil
+        }
+        // Walk from the original section's divider toward shallower ones, so a
+        // disabled or missing deeper section falls back to its neighbour.
+        let candidates = MenuBarSection.Name.allCases
+            .filter { !$0.isVisible && $0.rank <= context.originalSection.rank }
+            .sorted { $0.rank > $1.rank }
+        for section in candidates {
+            if let controlItem = items.first(matching: MenuBarItemTag(controlItem: section.controlItemIdentifier)) {
+                return .leftOfItem(controlItem)
+            }
         }
 
         MenuBarItemManager.diagLog.error("No control items found to resolve return destination for \(context.tag)")
@@ -3171,7 +3133,7 @@ extension MenuBarItemManager {
     /// Returns true if a relocation was performed.
     private func relocateNewLeftmostItems(
         _ items: [MenuBarItem],
-        controlItems: ControlItemPair,
+        controlItems: ControlItemSet,
         previousWindowIDs: [CGWindowID]
     ) async -> Bool {
         guard appState != nil else { return false }
@@ -3189,8 +3151,8 @@ extension MenuBarItemManager {
         }
 
         // Avoid relocating items already assigned to hidden/always-hidden sections.
-        let hiddenTags = Set(itemCache[.hidden].map(\.tag))
-        let alwaysHiddenTags = Set(itemCache[.alwaysHidden].map(\.tag))
+        let hiddenTags = Set(MenuBarSection.Name.allCases.filter { !$0.isVisible && $0.rank == 1 }.flatMap { itemCache[$0] }.map(\.tag))
+        let alwaysHiddenTags = Set(MenuBarSection.Name.allCases.filter { $0.rank >= 2 }.flatMap { itemCache[$0] }.map(\.tag))
 
         /// Track bundle IDs for pinned items in hidden/always-hidden.
         /// NOTE: We no longer automatically pin bundle IDs based on current section
@@ -3377,7 +3339,7 @@ extension MenuBarItemManager {
     /// Returns `true` if any items were relocated.
     private func relocatePendingItems(
         _ items: [MenuBarItem],
-        controlItems: ControlItemPair
+        controlItems: ControlItemSet
     ) async -> Bool {
         guard !pendingRelocations.isEmpty else {
             return false
@@ -3440,17 +3402,10 @@ extension MenuBarItemManager {
             {
                 destination = .rightOfItem(fallbackItem)
             } else {
-                switch targetSection {
-                case .hidden:
-                    destination = .leftOfItem(controlItems.hidden)
-                case .alwaysHidden:
-                    if let alwaysHidden = controlItems.alwaysHidden {
-                        destination = .leftOfItem(alwaysHidden)
-                    } else {
-                        destination = .leftOfItem(controlItems.hidden)
-                    }
-                case .visible:
+                if targetSection.isVisible {
                     continue
+                } else {
+                    destination = rightmostDestination(in: targetSection.rank, controlItems: controlItems)
                 }
             }
 
@@ -3492,7 +3447,7 @@ extension MenuBarItemManager {
     /// Returns `true` if any items were moved (caller should recache).
     private func restoreItemsToSavedSections(
         _ items: [MenuBarItem],
-        controlItems: ControlItemPair,
+        controlItems: ControlItemSet,
         previousWindowIDs: [CGWindowID]
     ) async -> Bool {
         guard !savedSectionOrder.isEmpty else { return false }
@@ -3630,22 +3585,7 @@ extension MenuBarItemManager {
 
             // Item is in the wrong section — move it.
             let destination: MoveDestination
-            switch savedSection {
-            case .visible:
-                destination = .rightOfItem(controlItems.hidden)
-            case .hidden:
-                if let alwaysHidden = controlItems.alwaysHidden {
-                    destination = .rightOfItem(alwaysHidden)
-                } else {
-                    destination = .leftOfItem(controlItems.hidden)
-                }
-            case .alwaysHidden:
-                if let alwaysHidden = controlItems.alwaysHidden {
-                    destination = .leftOfItem(alwaysHidden)
-                } else {
-                    destination = .leftOfItem(controlItems.hidden)
-                }
-            }
+            destination = leftmostDestination(in: savedSection.rank, controlItems: controlItems)
 
             MenuBarItemManager.diagLog.info(
                 "Restoring \(item.logString) from \(currentSection.logString) to \(savedSection.logString)"
@@ -3706,7 +3646,7 @@ extension MenuBarItemManager {
     /// Returns `true` if any items were moved.
     private func restoreSavedItemOrder(
         _ items: [MenuBarItem],
-        controlItems: ControlItemPair,
+        controlItems: ControlItemSet,
         previousWindowIDs: [CGWindowID]
     ) async -> Bool {
         guard !savedSectionOrder.isEmpty else { return false }
@@ -3781,7 +3721,7 @@ extension MenuBarItemManager {
 
         var didMove = false
 
-        for sectionName in MenuBarSection.Name.allCases {
+        for sectionName in appState?.menuBarManager.sections.map { $0.name } ?? MenuBarSection.Name.allCases {
             let sectionKeyString = sectionKey(for: sectionName)
             guard let savedIdentifiers = savedSectionOrder[sectionKeyString],
                   let currentItems = currentSectionItems[sectionKeyString],
@@ -3864,24 +3804,21 @@ extension MenuBarItemManager {
         Bridging.getWindowBounds(for: item.windowID) ?? item.bounds
     }
 
-    /// Enforces the order of the given control items, ensuring that the
-    /// control item for the always-hidden section is positioned to the
-    /// left of control item for the hidden section.
-    private func enforceControlItemOrder(controlItems: ControlItemPair) async {
-        let hidden = controlItems.hidden
-
-        guard
-            let alwaysHidden = controlItems.alwaysHidden,
-            hidden.bounds.maxX <= alwaysHidden.bounds.minX
-        else {
-            return
-        }
-
-        do {
-            MenuBarItemManager.diagLog.debug("Control items have incorrect order")
-            try await move(item: alwaysHidden, to: .leftOfItem(hidden), skipInputPause: true)
-        } catch {
-            MenuBarItemManager.diagLog.error("Error enforcing control item order: \(error)")
+    /// Enforces the order of the given control items, ensuring that each
+    /// deeper divider sits to the left of the one before it.
+    private func enforceControlItemOrder(controlItems: ControlItemSet) async {
+        let dividers = controlItems.dividers
+        guard dividers.count > 1 else { return }
+        for index in 1 ..< dividers.count {
+            let shallower = dividers[index - 1]
+            let deeper = dividers[index]
+            guard shallower.bounds.maxX <= deeper.bounds.minX else { continue }
+            do {
+                MenuBarItemManager.diagLog.debug("Control items have incorrect order at rank \(index + 1)")
+                try await move(item: deeper, to: .leftOfItem(shallower), skipInputPause: true)
+            } catch {
+                MenuBarItemManager.diagLog.error("Error enforcing control item order: \(error)")
+            }
         }
     }
 
@@ -4082,7 +4019,7 @@ extension MenuBarItemManager {
             .controlItem(withName: .alwaysHidden)?.window
             .flatMap { CGWindowID(exactly: $0.windowNumber) }
 
-        guard let controlItems = ControlItemPair(
+        guard let controlItems = ControlItemSet(
             items: &items,
             hiddenControlItemWindowID: hiddenWID,
             alwaysHiddenControlItemWindowID: alwaysHiddenWID
@@ -4098,7 +4035,7 @@ extension MenuBarItemManager {
                 try? await Task.sleep(for: .milliseconds(150))
 
                 items = await MenuBarItem.getMenuBarItems(option: .activeSpace)
-                if let retryControlItems = ControlItemPair(
+                if let retryControlItems = ControlItemSet(
                     items: &items,
                     hiddenControlItemWindowID: hiddenWID,
                     alwaysHiddenControlItemWindowID: alwaysHiddenWID
@@ -4116,7 +4053,7 @@ extension MenuBarItemManager {
         return try await resetLayoutWithControlItems(controlItems: controlItems, items: items)
     }
 
-    private func resetLayoutWithControlItems(controlItems: ControlItemPair, items: [MenuBarItem]) async throws -> Int {
+    private func resetLayoutWithControlItems(controlItems: ControlItemSet, items: [MenuBarItem]) async throws -> Int {
         guard let appState else {
             throw LayoutResetError.missingAppState
         }
@@ -4172,7 +4109,7 @@ extension MenuBarItemManager {
         let refreshAlwaysHiddenWID: CGWindowID? = appState.menuBarManager
             .controlItem(withName: .alwaysHidden)?.window
             .flatMap { CGWindowID(exactly: $0.windowNumber) }
-        if let refreshedControls = ControlItemPair(
+        if let refreshedControls = ControlItemSet(
             items: &refreshedItems,
             hiddenControlItemWindowID: refreshHiddenWID,
             alwaysHiddenControlItemWindowID: refreshAlwaysHiddenWID
@@ -4225,10 +4162,10 @@ extension MenuBarItemManager {
         }
 
         if itemCache.displayID != nil {
-            await appState.imageCache.updateCacheWithoutChecks(sections: MenuBarSection.Name.allCases)
+            await appState.imageCache.updateCacheWithoutChecks(sections: appState.menuBarManager.sections.map { $0.name })
         } else {
             try? await Task.sleep(for: .milliseconds(350))
-            await appState.imageCache.updateCacheWithoutChecks(sections: MenuBarSection.Name.allCases)
+            await appState.imageCache.updateCacheWithoutChecks(sections: appState.menuBarManager.sections.map { $0.name })
         }
 
         await MainActor.run {
@@ -4372,7 +4309,7 @@ extension MenuBarItemManager {
         // Build desired flat sequence (right-to-left): visible, hidden, alwaysHidden.
         // This is the target linear order of all items across all sections.
         // Control item UIDs are inserted at section boundaries after the
-        // items are discovered (since we need the ControlItemPair first).
+        // items are discovered (since we need the ControlItemSet first).
         var desiredFlat = [String]()
         for key in ["visible", "hidden", "alwaysHidden"] {
             if let order = itemOrder[key] {
@@ -4383,7 +4320,7 @@ extension MenuBarItemManager {
         // Discover current items and build current flat sequence (right-to-left).
         var items = await MenuBarItem.getMenuBarItems(option: .activeSpace)
         guard var itemsCopy = Optional(items),
-              let controlItems = ControlItemPair(
+              let controlItems = ControlItemSet(
                   items: &itemsCopy,
                   hiddenControlItemWindowID: hiddenWID,
                   alwaysHiddenControlItemWindowID: alwaysHiddenWID
@@ -4440,7 +4377,7 @@ extension MenuBarItemManager {
             currentFlat.append(contentsOf: sectionItems.map(\.uniqueIdentifier))
             if sectionName == .visible {
                 currentFlat.append(hiddenCtrlUID)
-            } else if sectionName == .hidden, let ahCtrlUID {
+            } else if sectionName.rank == 1, let ahCtrlUID {
                 currentFlat.append(ahCtrlUID)
             }
         }
@@ -4702,12 +4639,7 @@ extension MenuBarItemManager {
             // so we can determine current sections from the build order.
             var currentSectionForUID = [String: String]()
             for sectionName in [MenuBarSection.Name.visible, .hidden, .alwaysHidden] {
-                let key: String
-                switch sectionName {
-                case .visible: key = "visible"
-                case .hidden: key = "hidden"
-                case .alwaysHidden: key = "alwaysHidden"
-                }
+                let key = sectionName.id
                 let sectionItems = items.filter { item in
                     guard isProfileItem(item) else { return false }
                     return context.findSection(for: item) == sectionName
@@ -4786,7 +4718,7 @@ extension MenuBarItemManager {
                 // the control item move changed section boundaries.
                 items = await MenuBarItem.getMenuBarItems(option: .activeSpace)
                 var itemsCopy2 = items
-                guard let freshControl = ControlItemPair(
+                guard let freshControl = ControlItemSet(
                     items: &itemsCopy2,
                     hiddenControlItemWindowID: hiddenWID,
                     alwaysHiddenControlItemWindowID: alwaysHiddenWID
@@ -4854,7 +4786,7 @@ extension MenuBarItemManager {
 
                 let allFreshItems = await MenuBarItem.getMenuBarItems(option: .activeSpace)
                 var freshItemsCopy = allFreshItems
-                guard let freshControl = ControlItemPair(
+                guard let freshControl = ControlItemSet(
                     items: &freshItemsCopy,
                     hiddenControlItemWindowID: hiddenWID,
                     alwaysHiddenControlItemWindowID: alwaysHiddenWID
@@ -4947,7 +4879,7 @@ extension MenuBarItemManager {
 
         // Refresh image cache so the Layout Bar UI updates immediately.
         appState.imageCache.performCacheCleanup()
-        await appState.imageCache.updateCacheWithoutChecks(sections: MenuBarSection.Name.allCases)
+        await appState.imageCache.updateCacheWithoutChecks(sections: appState.menuBarManager.sections.map { $0.name })
         await MainActor.run { appState.objectWillChange.send() }
     }
 
@@ -4999,20 +4931,48 @@ extension MenuBarItemManager {
     /// between adjacent control items.
     private func sectionBoundaryDestination(
         for section: MenuBarSection.Name,
-        controlItems: ControlItemPair
+        controlItems: ControlItemSet
     ) -> MoveDestination {
-        switch section {
-        case .visible:
-            .rightOfItem(controlItems.hidden)
-        case .hidden:
-            .leftOfItem(controlItems.hidden)
-        case .alwaysHidden:
-            if let ah = controlItems.alwaysHidden {
-                .leftOfItem(ah)
-            } else {
-                .leftOfItem(controlItems.hidden)
+        rightmostDestination(in: section.rank, controlItems: controlItems)
+    }
+
+    /// The slot immediately left of a section's own divider, which is the
+    /// rightmost position inside that section. Falls back to the deepest
+    /// divider that exists when the section's own divider is missing.
+    private func rightmostDestination(in rank: Int, controlItems: ControlItemSet) -> MoveDestination {
+        if rank == 0 { return .rightOfItem(controlItems.hidden) }
+        return .leftOfItem(controlItems.deepestDivider(upTo: rank))
+    }
+
+    /// The slot immediately right of the next deeper divider, which is the
+    /// leftmost position inside a section. When no deeper divider exists the
+    /// section has no left boundary, so use its rightmost slot instead.
+    private func leftmostDestination(in rank: Int, controlItems: ControlItemSet) -> MoveDestination {
+        if rank == 0 { return .rightOfItem(controlItems.hidden) }
+        if let divider = controlItems.divider(rank: rank + 1) { return .rightOfItem(divider) }
+        return .leftOfItem(controlItems.deepestDivider(upTo: rank))
+    }
+
+    /// Moves every item currently cached in `section` into the section one
+    /// rank shallower. Used before a section is removed.
+    func relocateItems(from section: MenuBarSection.Name) async {
+        guard !section.isVisible else { return }
+        let targetRank = section.rank - 1
+        var items = await MenuBarItem.getMenuBarItems(option: .activeSpace)
+        guard let controlItems = ControlItemSet(items: &items) else {
+            MenuBarItemManager.diagLog.error("relocateItems: control items not found, cannot empty \(section.logString)")
+            return
+        }
+        let cached = itemCache[section]
+        for item in cached {
+            let destination = leftmostDestination(in: targetRank, controlItems: controlItems)
+            do {
+                try await move(item: item, to: destination)
+            } catch {
+                MenuBarItemManager.diagLog.error("relocateItems: failed to move \(item.logString): \(error)")
             }
         }
+        await cacheItemsRegardless(skipRecentMoveCheck: true)
     }
 
     /// Restores items that are stuck in a "blocked" state (positioned at x=-1)
@@ -5055,8 +5015,8 @@ extension MenuBarItemManager {
             .controlItem(withName: .alwaysHidden)?.window
             .flatMap { CGWindowID(exactly: $0.windowNumber) }
 
-        // Create ControlItemPair to get MenuBarItem representations
-        guard let controlItems = ControlItemPair(
+        // Create ControlItemSet to get MenuBarItem representations
+        guard let controlItems = ControlItemSet(
             items: &items,
             hiddenControlItemWindowID: hiddenWID,
             alwaysHiddenControlItemWindowID: alwaysHiddenWID

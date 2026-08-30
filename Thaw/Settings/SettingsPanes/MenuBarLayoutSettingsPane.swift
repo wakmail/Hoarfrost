@@ -16,6 +16,9 @@ struct MenuBarLayoutSettingsPane: View {
     @State private var isResettingLayout = false
     @State private var resetStatus: ResetStatus?
     @State private var isConfirmingReset = false
+    @State private var sectionBeingRenamed: String?
+    @State private var sectionNameDraft = ""
+    @State private var sectionBeingRemoved: String?
 
     private let diagLog = DiagLog(category: "MenuBarLayoutPane")
 
@@ -35,9 +38,40 @@ struct MenuBarLayoutSettingsPane: View {
         } else {
             IceForm(spacing: 20) {
                 header
+                sectionsEditor
                 layoutBars
                 resetControls
             }
+        }
+    }
+
+    private var sectionsEditor: some View {
+        IceSection {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Sections").font(.headline)
+                ForEach(Array(appState.menuBarManager.sections.dropFirst()), id: \.name.id) { section in
+                    HStack {
+                        if sectionBeingRenamed == section.name.id {
+                            TextField("Section name", text: $sectionNameDraft)
+                                .onSubmit { appState.menuBarManager.renameSection(id: section.name.id, to: sectionNameDraft); sectionBeingRenamed = nil }
+                        } else { Text(section.name.displayString) }
+                        Spacer()
+                        Button("Rename") { sectionNameDraft = section.name.displayName; sectionBeingRenamed = section.name.id }
+                        Button("Up") { appState.menuBarManager.moveSection(id: section.name.id, offset: -1) }
+                            .disabled(section.name.rank == 1)
+                        Button("Down") { appState.menuBarManager.moveSection(id: section.name.id, offset: 1) }
+                            .disabled(section.name.rank == appState.menuBarManager.sections.count - 1)
+                        Button("Remove", role: .destructive) { sectionBeingRemoved = section.name.id }
+                    }
+                }
+                Button("Add Section") { appState.menuBarManager.addSection() }
+            }
+        }
+        .alert("Remove section?", isPresented: Binding(get: { sectionBeingRemoved != nil }, set: { if !$0 { sectionBeingRemoved = nil } })) {
+            Button("Remove", role: .destructive) { if let id = sectionBeingRemoved { appState.menuBarManager.removeSection(id: id) }; sectionBeingRemoved = nil }
+            Button("Cancel", role: .cancel) { sectionBeingRemoved = nil }
+        } message: {
+            Text("Items move to the neighbouring section.")
         }
     }
 
@@ -59,7 +93,7 @@ struct MenuBarLayoutSettingsPane: View {
 
     private var layoutBars: some View {
         VStack(spacing: 20) {
-            ForEach(MenuBarSection.Name.allCases, id: \.self) { section in
+            ForEach(appState.menuBarManager.sections.map(\.name), id: \.self) { section in
                 layoutBar(for: section)
             }
         }
@@ -199,7 +233,7 @@ struct MenuBarLayoutSettingsPane: View {
             section.isEnabled
         {
             VStack(alignment: .leading) {
-                Text(name.localized)
+            Text(name.localized)
                     .font(.headline)
                     .padding(.leading, 8)
 

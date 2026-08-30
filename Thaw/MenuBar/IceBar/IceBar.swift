@@ -400,7 +400,7 @@ private struct IceBarContentView: View {
             .onAppear {
                 Self.diagLog.warning("IceBar content: showing 'requires screen recording permissions' — cachedCheckPermissions() returned false")
             }
-        } else if (section == .alwaysHidden || section == .hidden) && items.isEmpty {
+        } else if !section.isVisible && items.isEmpty {
             HStack {
                 if cacheGracePeriodActive {
                     Text("Loading menu bar items…")
