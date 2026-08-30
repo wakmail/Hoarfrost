@@ -310,7 +310,12 @@ final class MenuBarSection {
             if dropdownMenu == nil {
                 dropdownMenu = SectionDropdownMenu(appState: appState, sectionName: name)
             }
+            // popUp blocks until the menu closes, so the open and dismissal
+            // markers around it are accurate.
+            menuBarManager.openDropdownRank = name.rank
             dropdownMenu?.show(from: controlItem)
+            menuBarManager.openDropdownRank = nil
+            menuBarManager.lastDropdownDismissal = (name.rank, Date.now)
             return
         }
 

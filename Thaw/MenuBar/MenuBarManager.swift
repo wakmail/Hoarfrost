@@ -170,9 +170,12 @@ final class MenuBarManager: ObservableObject {
         }
     }
 
-    /// The rank the empty bar click cycle last opened, nil when the cycle
-    /// is at the start.
-    private var cycleRank: Int?
+    /// The rank of the dropdown currently on screen, if any.
+    var openDropdownRank: Int?
+
+    /// The most recently dismissed dropdown, for clicks that arrive just
+    /// after the menu closed itself.
+    var lastDropdownDismissal: (rank: Int, at: Date)?
 
     /// Clicks collected while the cycle debounce window is open.
     private var pendingCycleSteps = 0
@@ -214,33 +217,46 @@ final class MenuBarManager: ObservableObject {
     }
 
     /// Jumps the cycle forward by the given number of steps and shows only
-    /// the destination.
+    /// the destination. The starting position comes from what is actually
+    /// open right now, so a dropdown that dismissed itself long ago does
+    /// not leave the cycle stuck mid sequence.
     private func performCycle(steps: Int) {
-        diagLog.debug("performCycle: steps=\(steps) fromRank=\(cycleRank.map(String.init) ?? "none")")
         let ordered = sections
             .filter { !$0.name.isVisible && $0.isEnabled }
             .sorted { $0.name.rank < $1.name.rank }
         guard !ordered.isEmpty, steps > 0 else { return }
-        // Positions run first section, next, ..., deepest, then everything
-        // hidden, and wrap around.
-        let cycleLength = ordered.count + 1
+
+        func position(ofRank rank: Int) -> Int? {
+            ordered.firstIndex { $0.name.rank == rank }.map { $0 + 1 }
+        }
+
         let currentPosition: Int
-        if let cycleRank, let index = ordered.firstIndex(where: { $0.name.rank == cycleRank }) {
+        if let rank = openDropdownRank, let pos = position(ofRank: rank) {
+            currentPosition = pos
+        } else if let dismissal = lastDropdownDismissal,
+                  Date.now.timeIntervalSince(dismissal.at) < 0.6,
+                  let pos = position(ofRank: dismissal.rank)
+        {
+            currentPosition = pos
+        } else if let current = iceBarPanel.currentSection, let pos = position(ofRank: current.rank) {
+            currentPosition = pos
+        } else if let index = ordered.lastIndex(where: { !$0.isHidden }) {
             currentPosition = index + 1
         } else {
             currentPosition = 0
         }
+        lastDropdownDismissal = nil
+
+        diagLog.debug("performCycle: steps=\(steps) from position \(currentPosition)")
+        let cycleLength = ordered.count + 1
         let target = (currentPosition + steps) % cycleLength
         if target == 0 {
-            cycleRank = nil
             for section in ordered where !section.isHidden {
                 section.hide()
             }
             iceBarPanel.close()
         } else {
-            let destination = ordered[target - 1]
-            cycleRank = destination.name.rank
-            destination.show()
+            ordered[target - 1].show()
         }
     }
 

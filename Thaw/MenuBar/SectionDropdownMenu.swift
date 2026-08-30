@@ -26,6 +26,9 @@ final class SectionDropdownMenu: NSObject {
     private weak var appState: AppState?
     private let sectionName: MenuBarSection.Name
 
+    /// A menu built ahead of time so the first open presents instantly.
+    private var prebuiltMenu: NSMenu?
+
     init(appState: AppState, sectionName: MenuBarSection.Name) {
         self.appState = appState
         self.sectionName = sectionName
@@ -67,7 +70,11 @@ final class SectionDropdownMenu: NSObject {
 
     /// Presents the menu under the given control item.
     func show(from controlItem: ControlItem) {
-        controlItem.present(makeMenu())
+        let menu = prebuiltMenu ?? makeMenu()
+        prebuiltMenu = nil
+        controlItem.present(menu)
+        // Rebuild for the next open now that current images are in.
+        prebuiltMenu = makeMenu()
     }
 
     /// Builds one menu with a submenu per hidden section.
