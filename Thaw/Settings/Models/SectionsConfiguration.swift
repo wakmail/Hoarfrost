@@ -30,6 +30,24 @@ enum SectionRevealStyle: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// What clicking empty menu bar space does.
+enum EmptyBarClickBehavior: String, Codable, CaseIterable, Sendable {
+    /// Toggle the first hidden section; double click opens the deepest.
+    case toggleFirst
+    /// Each click opens the next section, then hides everything.
+    case cycle
+    /// The left half opens the second section, the right half the first.
+    case split
+
+    var displayName: String {
+        switch self {
+        case .toggleFirst: String(localized: "Toggle the first section")
+        case .cycle: String(localized: "Cycle through sections")
+        case .split: String(localized: "Left half and right half open different sections")
+        }
+    }
+}
+
 struct SectionDefinition: Codable, Hashable, Identifiable, Sendable {
     let id: String
     var displayName: String
@@ -70,17 +88,20 @@ struct SectionsConfiguration: Codable, Hashable, Sendable {
     /// Show each app's icon in dropdown rows instead of the captured menu
     /// bar image.
     var dropdownShowsAppIcons: Bool = false
+    /// What clicking empty menu bar space does.
+    var emptyBarClickBehavior: EmptyBarClickBehavior = .toggleFirst
 
     static let defaults = SectionsConfiguration(hiddenSections: [.hidden, .alwaysHidden])
 
-    init(hiddenSections: [SectionDefinition], iceIconOpensCombinedMenu: Bool = false, dropdownShowsAppIcons: Bool = false) {
+    init(hiddenSections: [SectionDefinition], iceIconOpensCombinedMenu: Bool = false, dropdownShowsAppIcons: Bool = false, emptyBarClickBehavior: EmptyBarClickBehavior = .toggleFirst) {
         self.hiddenSections = hiddenSections
         self.iceIconOpensCombinedMenu = iceIconOpensCombinedMenu
         self.dropdownShowsAppIcons = dropdownShowsAppIcons
+        self.emptyBarClickBehavior = emptyBarClickBehavior
     }
 
     private enum CodingKeys: String, CodingKey {
-        case hiddenSections, iceIconOpensCombinedMenu, dropdownShowsAppIcons
+        case hiddenSections, iceIconOpensCombinedMenu, dropdownShowsAppIcons, emptyBarClickBehavior
     }
 
     init(from decoder: Decoder) throws {
@@ -88,5 +109,6 @@ struct SectionsConfiguration: Codable, Hashable, Sendable {
         hiddenSections = try container.decode([SectionDefinition].self, forKey: .hiddenSections)
         iceIconOpensCombinedMenu = try container.decodeIfPresent(Bool.self, forKey: .iceIconOpensCombinedMenu) ?? false
         dropdownShowsAppIcons = try container.decodeIfPresent(Bool.self, forKey: .dropdownShowsAppIcons) ?? false
+        emptyBarClickBehavior = try container.decodeIfPresent(EmptyBarClickBehavior.self, forKey: .emptyBarClickBehavior) ?? .toggleFirst
     }
 }

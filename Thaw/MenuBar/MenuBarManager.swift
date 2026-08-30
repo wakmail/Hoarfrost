@@ -170,6 +170,42 @@ final class MenuBarManager: ObservableObject {
         }
     }
 
+    /// The rank the empty bar click cycle last opened, nil when the cycle
+    /// is at the start.
+    private var cycleRank: Int?
+
+    /// Advances the empty bar click cycle: first section, next section,
+    /// and after the deepest everything hides again.
+    func cycleSections() {
+        let ordered = sections
+            .filter { !$0.name.isVisible && $0.isEnabled }
+            .sorted { $0.name.rank < $1.name.rank }
+        guard !ordered.isEmpty else { return }
+        let next: MenuBarSection?
+        if let cycleRank {
+            next = ordered.first { $0.name.rank > cycleRank }
+        } else {
+            next = ordered.first
+        }
+        if let next {
+            cycleRank = next.name.rank
+            next.show()
+        } else {
+            cycleRank = nil
+            for section in ordered where !section.isHidden {
+                section.hide()
+            }
+            iceBarPanel.close()
+        }
+    }
+
+    /// Sets what clicking empty menu bar space does.
+    func setEmptyBarClickBehavior(_ behavior: EmptyBarClickBehavior) {
+        sectionsConfiguration.emptyBarClickBehavior = behavior
+        saveSectionsConfiguration()
+        objectWillChange.send()
+    }
+
     /// Chooses whether dropdown rows show app icons or captured images.
     func setDropdownShowsAppIcons(_ enabled: Bool) {
         sectionsConfiguration.dropdownShowsAppIcons = enabled
