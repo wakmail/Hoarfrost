@@ -189,7 +189,8 @@ final class SectionDropdownMenu: NSObject {
             // padded image by one uniform factor keeps each glyph at its
             // true relative size and vertical position. Only the extra
             // transparent width is chopped off.
-            let cgImage = captured.cgImage.trimmedHorizontallyToOpaqueBounds() ?? captured.cgImage
+            let band = 18 * captured.scale
+            let cgImage = captured.cgImage.croppedToMenuBarGlyphBand(bandHeight: band) ?? captured.cgImage
             let size = CGSize(width: CGFloat(cgImage.width) / captured.scale, height: CGFloat(cgImage.height) / captured.scale)
             let image = NSImage(cgImage: cgImage, size: size)
             if size.height > 0, size.width > 0 {
@@ -229,10 +230,12 @@ final class SectionDropdownMenu: NSObject {
 }
 
 private extension CGImage {
-    /// The image cropped horizontally to the columns containing meaningful
-    /// alpha, keeping the full height, or nil when the image is fully
-    /// transparent or unreadable. A little padding is kept on both sides.
-    func trimmedHorizontallyToOpaqueBounds() -> CGImage? {
+    /// Crops a status item capture for a dropdown row: transparent width is
+    /// removed, and the height is cut to a band centered on the bar, where
+    /// every glyph lives, so one shared scale factor renders each glyph at
+    /// its true relative size. A glyph taller than the band is cropped to
+    /// its own bounds instead so nothing gets clipped.
+    func croppedToMenuBarGlyphBand(bandHeight: CGFloat) -> CGImage? {
         let width = self.width
         let height = self.height
         guard width > 0, height > 0 else { return nil }
@@ -261,11 +264,23 @@ private extension CGImage {
             }
         }
         guard maxX >= minX, maxY >= minY else { return nil }
+        let opaqueHeight = CGFloat(maxY - minY + 1)
+        let y: CGFloat
+        let cropHeight: CGFloat
+        if opaqueHeight <= bandHeight {
+            // One fixed band centered on the bar keeps every glyph's
+            // relative size and vertical position.
+            y = max(0, (CGFloat(height) - bandHeight) / 2)
+            cropHeight = min(CGFloat(height), bandHeight)
+        } else {
+            y = CGFloat(max(0, minY - 1))
+            cropHeight = min(CGFloat(height), opaqueHeight + 2)
+        }
         let rect = CGRect(
-            x: max(0, minX - 2),
-            y: 0,
-            width: min(width, maxX - minX + 5),
-            height: height
+            x: CGFloat(max(0, minX - 2)),
+            y: y,
+            width: CGFloat(min(width, maxX - minX + 5)),
+            height: cropHeight
         )
         return cropping(to: rect)
     }
