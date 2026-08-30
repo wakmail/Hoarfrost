@@ -2738,6 +2738,11 @@ extension MenuBarItemManager {
             }
             try? await Task.sleep(for: .milliseconds(50))
             if Task.isCancelled { return }
+            // Never fight the user's own drag; the timer will catch up.
+            while await MainActor.run(body: { self.appState?.isDraggingMenuBarItem ?? false }) {
+                try? await Task.sleep(for: .milliseconds(200))
+                if Task.isCancelled { return }
+            }
             MenuBarItemManager.diagLog.debug("Opened interface closed, rehiding temporarily shown items")
             await self.rehideTemporarilyShownItems(force: true)
         }

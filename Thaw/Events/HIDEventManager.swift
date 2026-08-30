@@ -366,7 +366,7 @@ final class HIDEventManager: ObservableObject {
         // due to a cancelled Task or unexpected error. Force recovery.
         if !isEnabled, disableCount > 0, let lastStop = lastStopTimestamp {
             let elapsed = ContinuousClock.now - lastStop
-            if elapsed > .seconds(30) {
+            if elapsed > .seconds(5) {
                 Self.diagLog.error(
                     """
                     Event manager stuck in disabled state for \
