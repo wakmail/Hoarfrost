@@ -511,7 +511,9 @@ final class MenuBarSection {
         }
 
         rehideTask?.cancel()
-        let interval = appState.settings.general.rehideInterval
+        // Never spin: a menu that stays open would otherwise restart this
+        // task thousands of times a second when the interval is zero.
+        let interval = max(appState.settings.general.rehideInterval, 0.5)
         rehideTask = Task { [weak self, weak appState] in
             try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled, let self, let appState else { return }

@@ -2710,31 +2710,35 @@ extension MenuBarItemManager {
 
     /// Schedules a timer for the given interval that rehides the
     /// temporarily shown items when fired.
-    /// Rehides temporarily shown items as soon as the menu the click opened
-    /// has closed. Waits briefly for a menu to appear; if none does, leaves
-    /// the timer based rehide to handle it.
-    private func rehideWhenMenuCloses() {
+    /// Rehides temporarily shown items as soon as the interface the click
+    /// opened has closed.
+    ///
+    /// Watches only windows that appeared after the click and belong to the
+    /// item's app, so an app that always keeps some untitled window around
+    /// (Droppy, for one) does not look like a menu that never closes. If no
+    /// window appears within a short budget, the timer based rehide handles it.
+    private func rehideWhenMenuCloses(for item: MenuBarItem, windowsBefore: Set<CGWindowID>) {
         menuCloseWatchTask?.cancel()
+        let pids = Set([item.ownerPID, item.sourcePID].compactMap { $0 })
         menuCloseWatchTask = Task { [weak self] in
             guard let self else { return }
-            var opened = false
+            var opened = Set<CGWindowID>()
             let openDeadline = ContinuousClock.now.advanced(by: .milliseconds(1500))
-            while ContinuousClock.now < openDeadline {
-                try? await Task.sleep(for: .milliseconds(100))
+            while ContinuousClock.now < openDeadline, opened.isEmpty {
+                try? await Task.sleep(for: .milliseconds(80))
                 if Task.isCancelled { return }
-                if await self.isAnyMenuBarItemMenuOpen() {
-                    opened = true
-                    break
-                }
+                let newIDs = Bridging.getWindowList(option: .onScreen).filter { !windowsBefore.contains($0) }
+                let owned = WindowInfo.createWindows(from: newIDs).filter { pids.contains($0.ownerPID) }
+                opened = Set(owned.map(\.windowID))
             }
-            guard opened else { return }
-            while await self.isAnyMenuBarItemMenuOpen() {
+            guard !opened.isEmpty else { return }
+            while opened.contains(where: { Bridging.isWindowOnScreen($0) }) {
                 try? await Task.sleep(for: .milliseconds(80))
                 if Task.isCancelled { return }
             }
             try? await Task.sleep(for: .milliseconds(50))
             if Task.isCancelled { return }
-            MenuBarItemManager.diagLog.debug("Menu closed, rehiding temporarily shown items")
+            MenuBarItemManager.diagLog.debug("Opened interface closed, rehiding temporarily shown items")
             await self.rehideTemporarilyShownItems(force: true)
         }
     }
@@ -2900,9 +2904,10 @@ extension MenuBarItemManager {
         temporarilyShownItemContexts.append(context)
 
         rehideTimer?.invalidate()
+        let windowsBefore = Set(Bridging.getWindowList(option: .onScreen))
         defer {
             runRehideTimer()
-            rehideWhenMenuCloses()
+            rehideWhenMenuCloses(for: item, windowsBefore: windowsBefore)
         }
 
         let clickItem: MenuBarItem
