@@ -2825,14 +2825,14 @@ extension MenuBarItemManager {
             return
         }
 
-        // Show the item at the right end of the third party items, next to
-        // the system items, so it does not land in the middle of the bar.
-        // Fall back to the visible control item, then to any visible item.
-        let rightmostVisible = items
+        // Show the item at the left end of the visible items, right where
+        // the hidden section begins. Fall back to the visible control item,
+        // then to any visible item.
+        let leftmostVisible = items
             .filter { !$0.isControlItem && $0.isMovable && $0.canBeHidden && !$0.isSystemClone && $0.bounds.minX >= 0 }
-            .max { $0.bounds.minX < $1.bounds.minX }
+            .min { $0.bounds.minX < $1.bounds.minX }
         let visibleControl = items.first(matching: .visibleControlItem)
-        let targetItem = rightmostVisible ?? visibleControl ?? items.first
+        let targetItem = leftmostVisible ?? visibleControl ?? items.first
 
         // If we couldn't find any anchor, bail gracefully.
         guard let anchor = targetItem else {
@@ -2843,7 +2843,7 @@ extension MenuBarItemManager {
             return
         }
 
-        let moveDestination: MoveDestination = rightmostVisible != nil ? .rightOfItem(anchor) : .leftOfItem(anchor)
+        let moveDestination: MoveDestination = .leftOfItem(anchor)
 
         // Record the item's original section early so we can relocate it if its app
         // quits before we get a chance to rehide it (macOS persists the
