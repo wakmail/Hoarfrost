@@ -4079,10 +4079,10 @@ extension MenuBarItemManager {
         var items = await MenuBarItem.getMenuBarItems(option: .activeSpace)
 
         let hiddenWID: CGWindowID? = appState.menuBarManager
-            .controlItem(withName: .hidden)?.window
+            .sections.first { $0.name.rank == 1 }?.controlItem.window
             .flatMap { CGWindowID(exactly: $0.windowNumber) }
         let alwaysHiddenWID: CGWindowID? = appState.menuBarManager
-            .controlItem(withName: .alwaysHidden)?.window
+            .sections.last { $0.name.rank > 1 }?.controlItem.window
             .flatMap { CGWindowID(exactly: $0.windowNumber) }
 
         guard let controlItems = ControlItemSet(
@@ -4372,12 +4372,12 @@ extension MenuBarItemManager {
             .controlItem(withName: .alwaysHidden)?.window
             .flatMap { CGWindowID(exactly: $0.windowNumber) }
 
-        // Build desired flat sequence (right-to-left): visible, hidden, alwaysHidden.
+        // Build desired flat sequence from the configured sections.
         // This is the target linear order of all items across all sections.
         // Control item UIDs are inserted at section boundaries after the
         // items are discovered (since we need the ControlItemSet first).
         var desiredFlat = [String]()
-        for key in ["visible", "hidden", "alwaysHidden"] {
+        for key in appState.menuBarManager.sections.map({ $0.name.id }) {
             if let order = itemOrder[key] {
                 desiredFlat.append(contentsOf: order)
             }
@@ -4413,26 +4413,20 @@ extension MenuBarItemManager {
         // Rebuild desiredFlat with control items at section boundaries.
         var sectionMap = itemSectionMap
         var desiredFlatWithControls = [String]()
-        if let order = itemOrder["visible"] {
-            desiredFlatWithControls.append(contentsOf: order)
-        }
-        desiredFlatWithControls.append(hiddenCtrlUID)
-        sectionMap[hiddenCtrlUID] = "hidden"
-        if let order = itemOrder["hidden"] {
-            desiredFlatWithControls.append(contentsOf: order)
-        }
-        if let ahCtrlUID {
-            desiredFlatWithControls.append(ahCtrlUID)
-            sectionMap[ahCtrlUID] = "alwaysHidden"
-        }
-        if let order = itemOrder["alwaysHidden"] {
-            desiredFlatWithControls.append(contentsOf: order)
+        for section in appState.menuBarManager.sections {
+            if let order = itemOrder[section.name.id] {
+                desiredFlatWithControls.append(contentsOf: order)
+            }
+            if !section.name.isVisible, let divider = controlItems.divider(rank: section.name.rank) {
+                desiredFlatWithControls.append(divider.uniqueIdentifier)
+                sectionMap[divider.uniqueIdentifier] = section.name.id
+            }
         }
         desiredFlat = desiredFlatWithControls
 
         // Build current flat sequence with control items at section boundaries.
         var currentFlat = [String]()
-        for sectionName in [MenuBarSection.Name.visible, .hidden, .alwaysHidden] {
+        for sectionName in appState.menuBarManager.sections.map(\.name) {
             let sectionItems = items.filter { item in
                 guard isProfileItem(item) else { return false }
                 return context.findSection(for: item) == sectionName
@@ -4441,10 +4435,8 @@ extension MenuBarItemManager {
                 "applyProfileLayout: current \(sectionName.logString) has \(sectionItems.count) items: \(sectionItems.map(\.uniqueIdentifier))"
             )
             currentFlat.append(contentsOf: sectionItems.map(\.uniqueIdentifier))
-            if sectionName == .visible {
-                currentFlat.append(hiddenCtrlUID)
-            } else if sectionName.rank == 1, let ahCtrlUID {
-                currentFlat.append(ahCtrlUID)
+            if let divider = controlItems.divider(rank: sectionName.rank + 1) {
+                currentFlat.append(divider.uniqueIdentifier)
             }
         }
 
@@ -4570,7 +4562,7 @@ extension MenuBarItemManager {
         // A full rearrange places every item explicitly, section by
         // section, using the control items as the starting anchor.
         let useLCSOnNotched = appState.settings.advanced.useLCSSortingOnNotchedDisplays
-        let isNotchedDisplay = activeScreen?.hasNotch == true && !useLCSOnNotched
+        let isNotchedDisplay = activeScreen?.hasNotch == true && !useLCSOnNotched && appState.menuBarManager.sections.count == 3
 
         // Hide cursor for the entire profile apply to avoid visual jitter.
         let savedCursorPosition = NSEvent.mouseLocation
@@ -4597,17 +4589,12 @@ extension MenuBarItemManager {
                 return
             }
 
-            let hiddenCtrlUID = controlItems.hidden.uniqueIdentifier
-            let ahCtrlUID = controlItems.alwaysHidden?.uniqueIdentifier
+            let dividerUIDs = Dictionary(uniqueKeysWithValues: controlItems.dividers.enumerated().map { ($0.offset + 1, $0.element.uniqueIdentifier) })
 
             // desiredFiltered stores items right-to-left within each section.
             // Reverse each to get left-to-right, then build the full sequence:
             //   [AH items (L→R)] [AH ctrl] [H items (L→R)] [H ctrl] [V items (L→R)]
-            var controlSet: Set<String> = [hiddenCtrlUID]
-            if let ahUID = ahCtrlUID { controlSet.insert(ahUID) }
-            let ahUIDs = desiredFiltered.filter { !controlSet.contains($0) && (sectionMap[$0] ?? "visible") == "alwaysHidden" }
-            let hiddenUIDs = desiredFiltered.filter { !controlSet.contains($0) && (sectionMap[$0] ?? "visible") == "hidden" }
-            let visibleUIDs = desiredFiltered.filter { !controlSet.contains($0) && (sectionMap[$0] ?? "visible") == "visible" }
+            let controlSet = Set(dividerUIDs.values)
 
             // Each item is placed `.leftOfItem(CC)`. The first item
             // placed gets pushed furthest LEFT by subsequent insertions.
@@ -4623,11 +4610,14 @@ extension MenuBarItemManager {
             // from CC, so use profile order directly (rightmost first =
             // gets pushed furthest left = ends up leftmost in section).
             var fullSequence = [String]()
-            fullSequence.append(contentsOf: ahUIDs)
-            if let ahCtrlUID { fullSequence.append(ahCtrlUID) }
-            fullSequence.append(contentsOf: hiddenUIDs)
-            fullSequence.append(hiddenCtrlUID)
-            fullSequence.append(contentsOf: visibleUIDs)
+            for section in appState.menuBarManager.sections.reversed() {
+                fullSequence.append(contentsOf: desiredFiltered.filter {
+                    !controlSet.contains($0) && (sectionMap[$0] ?? "visible") == section.name.id
+                })
+                if let dividerUID = dividerUIDs[section.name.rank] {
+                    fullSequence.append(dividerUID)
+                }
+            }
 
             MenuBarItemManager.diagLog.info(
                 "Profile layout (full sort): \(fullSequence.count) item(s) including controls"
@@ -4649,7 +4639,7 @@ extension MenuBarItemManager {
 
                 let freshItems = await MenuBarItem.getMenuBarItems(option: .activeSpace)
 
-                let isControlUID = uid == hiddenCtrlUID || uid == ahCtrlUID
+                let isControlUID = controlSet.contains(uid)
                 guard let item = freshItems.first(where: {
                     if isControlUID { return $0.uniqueIdentifier == uid }
                     return $0.uniqueIdentifier == uid && isProfileItem($0)
@@ -4704,7 +4694,7 @@ extension MenuBarItemManager {
             // currentFlat was built section-by-section using findSection,
             // so we can determine current sections from the build order.
             var currentSectionForUID = [String: String]()
-            for sectionName in [MenuBarSection.Name.visible, .hidden, .alwaysHidden] {
+            for sectionName in appState.menuBarManager.sections.map(\.name) {
                 let key = sectionName.id
                 let sectionItems = items.filter { item in
                     guard isProfileItem(item) else { return false }
@@ -4725,7 +4715,26 @@ extension MenuBarItemManager {
             let wrongInAH = currentAHSet.subtracting(desiredAHSet).intersection(desiredHiddenSet)
             let crossSectionMoves = wrongInHidden.count + wrongInAH.count
 
-            if crossSectionMoves > 0, let ahCtrlUID {
+            let configuredSections = appState.menuBarManager.sections.map(\.name)
+            if configuredSections.count != 3 {
+                let allFreshItems = await MenuBarItem.getMenuBarItems(option: .activeSpace)
+                for section in configuredSections where !section.isVisible {
+                    guard let divider = controlItems.divider(rank: section.rank) else { continue }
+                    let shallower = configuredSections.first { $0.rank == section.rank - 1 }
+                    let anchorUID = itemOrder[section.id]?.first ?? shallower.flatMap { itemOrder[$0.id]?.first }
+                    guard let anchorUID,
+                          let anchor = allFreshItems.first(where: { $0.uniqueIdentifier == anchorUID })
+                    else { continue }
+                    do {
+                        try await move(item: divider, to: .leftOfItem(anchor), skipInputPause: true)
+                        movedCount += 1
+                    } catch {
+                        MenuBarItemManager.diagLog.error("Profile layout: failed to move custom section divider: \(error)")
+                    }
+                }
+            }
+
+            if configuredSections.count == 3, crossSectionMoves > 0, let ahCtrlUID {
                 // Moving AH_ctrl to the correct position is 1 move that
                 // fixes all hidden↔alwaysHidden assignments.
                 MenuBarItemManager.diagLog.debug(
@@ -4800,7 +4809,7 @@ extension MenuBarItemManager {
                 )
 
                 currentFlat.removeAll()
-                for sectionName in [MenuBarSection.Name.visible, .hidden, .alwaysHidden] {
+                for sectionName in appState.menuBarManager.sections.map(\.name) {
                     let sectionItems = items.filter { item in
                         guard isProfileItem(item) else { return false }
                         return newContext.findSection(for: item) == sectionName
@@ -4812,8 +4821,9 @@ extension MenuBarItemManager {
             // Remove control items from sequences for LCS — they've been
             // handled in Phase 1. If Phase 1 moved a control item,
             // currentFlat was rebuilt so re-filter it.
-            let currentNoControls = currentFlat.filter { $0 != hiddenCtrlUID && $0 != ahCtrlUID }
-            let desiredNoControls = desiredFlat.filter { $0 != hiddenCtrlUID && $0 != ahCtrlUID }
+            let dividerUIDs = Set(controlItems.dividers.map(\.uniqueIdentifier))
+            let currentNoControls = currentFlat.filter { !dividerUIDs.contains($0) }
+            let desiredNoControls = desiredFlat.filter { !dividerUIDs.contains($0) }
             let currentSetNow = Set(currentNoControls)
             let desiredSetNow = Set(desiredNoControls)
             let lcsCurrent = currentNoControls.filter { desiredSetNow.contains($0) }
@@ -4867,12 +4877,8 @@ extension MenuBarItemManager {
                 }
 
                 let targetKey = sectionMap[uid] ?? "visible"
-                let targetSection: MenuBarSection.Name
-                switch targetKey {
-                case "hidden": targetSection = .hidden
-                case "alwaysHidden": targetSection = .alwaysHidden
-                default: targetSection = .visible
-                }
+                let targetSection = appState.menuBarManager.sections
+                    .first { $0.name.id == targetKey }?.name ?? .visible
 
                 var dest: MoveDestination?
 

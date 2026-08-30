@@ -444,10 +444,11 @@ extension HIDEventManager {
                 else {
                     return
                 }
-                if let alwaysHiddenSection = appState.menuBarManager.section(withName: .alwaysHidden),
-                   alwaysHiddenSection.isEnabled
+                if let deepestSection = appState.menuBarManager.sections
+                    .filter({ !$0.name.isVisible && $0.isEnabled })
+                    .max(by: { $0.name.rank < $1.name.rank })
                 {
-                    alwaysHiddenSection.show()
+                    deepestSection.show()
                     return
                 }
             } else {
@@ -462,15 +463,16 @@ extension HIDEventManager {
 
                 if NSEvent.modifierFlags == .option {
                     if appState.settings.advanced.useOptionClickToShowAlwaysHiddenSection,
-                       let alwaysHiddenSection = appState.menuBarManager.section(withName: .alwaysHidden),
-                       alwaysHiddenSection.isEnabled
+                       let deepestSection = appState.menuBarManager.sections
+                        .filter({ !$0.name.isVisible && $0.isEnabled })
+                        .max(by: { $0.name.rank < $1.name.rank })
                     {
-                        alwaysHiddenSection.show()
+                        deepestSection.show()
                     }
                     return
                 }
 
-                if let hiddenSection = appState.menuBarManager.section(withName: .hidden),
+                if let hiddenSection = appState.menuBarManager.sections.first(where: { $0.name.rank == 1 }),
                    hiddenSection.isEnabled
                 {
                     hiddenSection.toggle()
@@ -739,9 +741,7 @@ extension HIDEventManager {
 
         // Only continue if we have a hidden section (we should).
         guard
-            let hiddenSection = appState.menuBarManager.section(
-                withName: .hidden
-            )
+            let hiddenSection = appState.menuBarManager.sections.first(where: { $0.name.rank == 1 })
         else {
             return
         }
@@ -853,9 +853,7 @@ extension HIDEventManager {
         guard
             appState.settings.general.showOnScroll,
             isMouseInsideEmptyMenuBarSpace(appState: appState, screen: screen),
-            let hiddenSection = appState.menuBarManager.section(
-                withName: .hidden
-            )
+            let hiddenSection = appState.menuBarManager.sections.first(where: { $0.name.rank == 1 })
         else {
             return
         }
