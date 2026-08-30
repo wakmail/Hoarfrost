@@ -105,6 +105,13 @@ Manual test plan (quit Ice first, then run the Thaw scheme):
 7. Set a section's style to Dropdown menu, click its divider, pick an item.
 8. Turn on the combined dropdown toggle and click the app icon.
 
+### Shelved but cool
+- Split halves: the left and right half of the empty menu bar space open
+  different sections. Built and working (hidden in the picker, the code is
+  in `HIDEventManager` and `EmptyBarClickBehavior.split`), but an invisible
+  boundary confused even its inventor. Revisit with a visual hint, like a
+  faint divider or highlight of the half under the cursor while hovering.
+
 ### 2c. Raw mode (built)
 - Empty bar click behavior is a setting: toggle the first section, cycle
   through sections, or split halves. Cycle opens instantly by default; a
