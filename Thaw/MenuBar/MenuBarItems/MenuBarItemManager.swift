@@ -2729,13 +2729,13 @@ extension MenuBarItemManager {
             }
             guard opened else { return }
             while await self.isAnyMenuBarItemMenuOpen() {
-                try? await Task.sleep(for: .milliseconds(150))
+                try? await Task.sleep(for: .milliseconds(80))
                 if Task.isCancelled { return }
             }
-            try? await Task.sleep(for: .milliseconds(200))
+            try? await Task.sleep(for: .milliseconds(50))
             if Task.isCancelled { return }
             MenuBarItemManager.diagLog.debug("Menu closed, rehiding temporarily shown items")
-            await self.rehideTemporarilyShownItems()
+            await self.rehideTemporarilyShownItems(force: true)
         }
     }
 
