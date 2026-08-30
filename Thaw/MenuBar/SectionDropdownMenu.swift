@@ -21,7 +21,7 @@ final class SectionDropdownMenu: NSObject {
 
     /// Row image height in points. Sized to read like the menu bar without
     /// inflating the menu's row spacing.
-    private static let rowImageHeight: CGFloat = 19
+    private static let rowImageHeight: CGFloat = 17
 
     private weak var appState: AppState?
     private let sectionName: MenuBarSection.Name
@@ -31,6 +31,51 @@ final class SectionDropdownMenu: NSObject {
 
     /// The dropdown currently on screen, if any.
     private(set) static weak var openMenu: NSMenu?
+
+    /// The open dropdown's frame in AppKit screen coordinates.
+    private static var openMenuFrame: NSRect = .zero
+
+    /// A listen only tap that cancels the open menu without animation the
+    /// moment a click lands outside it, killing the dismissal fade that
+    /// otherwise plays before the next section appears.
+    private static var dismissTap: EventTap?
+
+    /// Records where the menu is about to appear.
+    static func noteOpenMenuFrame(_ frame: NSRect) {
+        openMenuFrame = frame
+    }
+
+    private static func installDismissTap() {
+        dismissTap = EventTap(
+            label: "DropdownDismissTap",
+            types: [.leftMouseDown, .rightMouseDown],
+            location: .sessionEventTap,
+            placement: .headInsertEventTap,
+            option: .listenOnly
+        ) { _, event in
+            // Runs on the main run loop in a common mode, so this fires
+            // while the menu's tracking loop is spinning.
+            MainActor.assumeIsolated {
+                guard let menu = openMenu else { return }
+                let location = event.location
+                let mainHeight = CGDisplayBounds(CGMainDisplayID()).height
+                let frame = openMenuFrame
+                let cgTop = mainHeight - frame.maxY
+                let inside = location.x >= frame.minX && location.x <= frame.maxX
+                    && location.y >= cgTop && location.y <= cgTop + frame.height
+                if !inside {
+                    menu.cancelTrackingWithoutAnimation()
+                }
+            }
+            return event
+        }
+        dismissTap?.enable()
+    }
+
+    private static func removeDismissTap() {
+        dismissTap?.invalidate()
+        dismissTap = nil
+    }
 
     /// Hides the open dropdown immediately, skipping the fade out.
     static func dismissOpenMenuInstantly() {
@@ -95,11 +140,13 @@ final class SectionDropdownMenu: NSObject {
             guard let self, let appState else { return }
             let manager = appState.menuBarManager
             Self.openMenu = menu
+            Self.installDismissTap()
             manager.openDropdownRank = self.sectionName.rank
             controlItem.present(menu)
             manager.openDropdownRank = nil
             manager.lastDropdownDismissal = (self.sectionName.rank, Date.now)
             Self.openMenu = nil
+            Self.removeDismissTap()
             // Rebuild for the next open now that current images are in.
             self.prebuiltMenu = self.makeMenu()
         }

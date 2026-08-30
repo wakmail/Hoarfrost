@@ -766,6 +766,7 @@ final class ControlItem {
             x = min(max(x, screen.frame.minX), screen.frame.maxX - width)
         }
         let point = NSPoint(x: x, y: min(mouse.y, top))
+        SectionDropdownMenu.noteOpenMenuFrame(NSRect(x: point.x, y: point.y - menu.size.height, width: width, height: menu.size.height))
         menu.popUp(positioning: nil, at: point, in: nil)
     }
 
