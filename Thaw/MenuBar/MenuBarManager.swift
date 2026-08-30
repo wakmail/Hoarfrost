@@ -174,36 +174,61 @@ final class MenuBarManager: ObservableObject {
     /// is at the start.
     private var cycleRank: Int?
 
-    /// Advances the empty bar click cycle: first section, next section,
-    /// and after the deepest everything hides again.
+    /// Clicks collected while the cycle debounce window is open.
+    private var pendingCycleSteps = 0
+    private var cycleDebounceTask: Task<Void, Never>?
+
+    /// One click of the empty bar cycle. Clicks inside the double click
+    /// window accumulate and land as one jump, so a fast double click goes
+    /// straight to the second section without flashing the first.
     func cycleSections() {
+        pendingCycleSteps += 1
+        // Warm every hidden section immediately so whatever the jump lands
+        // on opens with its content already rendered.
+        if pendingCycleSteps == 1, let appState {
+            let names = sections.filter { !$0.name.isVisible }.map(\.name)
+            Task {
+                await appState.imageCache.warmImages(sections: names)
+            }
+        }
+        cycleDebounceTask?.cancel()
+        let window = min(NSEvent.doubleClickInterval, 0.3)
+        cycleDebounceTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(window))
+            guard !Task.isCancelled, let self else { return }
+            let steps = self.pendingCycleSteps
+            self.pendingCycleSteps = 0
+            self.performCycle(steps: steps)
+        }
+    }
+
+    /// Jumps the cycle forward by the given number of steps and shows only
+    /// the destination.
+    private func performCycle(steps: Int) {
         let ordered = sections
             .filter { !$0.name.isVisible && $0.isEnabled }
             .sorted { $0.name.rank < $1.name.rank }
-        guard !ordered.isEmpty else { return }
-        let next: MenuBarSection?
-        if let cycleRank {
-            next = ordered.first { $0.name.rank > cycleRank }
+        guard !ordered.isEmpty, steps > 0 else { return }
+        // Positions run first section, next, ..., deepest, then everything
+        // hidden, and wrap around.
+        let cycleLength = ordered.count + 1
+        let currentPosition: Int
+        if let cycleRank, let index = ordered.firstIndex(where: { $0.name.rank == cycleRank }) {
+            currentPosition = index + 1
         } else {
-            next = ordered.first
+            currentPosition = 0
         }
-        if let next {
-            cycleRank = next.name.rank
-            next.show()
-            // Warm the images of every hidden section so the next step of
-            // the cycle opens with its content already rendered.
-            if let appState {
-                let names = sections.filter { !$0.name.isVisible }.map(\.name)
-                Task {
-                    await appState.imageCache.warmImages(sections: names)
-                }
-            }
-        } else {
+        let target = (currentPosition + steps) % cycleLength
+        if target == 0 {
             cycleRank = nil
             for section in ordered where !section.isHidden {
                 section.hide()
             }
             iceBarPanel.close()
+        } else {
+            let destination = ordered[target - 1]
+            cycleRank = destination.name.rank
+            destination.show()
         }
     }
 
