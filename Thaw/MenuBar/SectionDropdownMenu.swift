@@ -21,7 +21,7 @@ final class SectionDropdownMenu: NSObject {
 
     /// Row image height in points. Sized to read like the menu bar without
     /// inflating the menu's row spacing.
-    private static let rowImageHeight: CGFloat = 18
+    private static let rowImageHeight: CGFloat = 20
 
     private weak var appState: AppState?
     private let sectionName: MenuBarSection.Name
@@ -60,8 +60,10 @@ final class SectionDropdownMenu: NSObject {
             return menu
         }
 
+        let rowFont = NSFont.menuFont(ofSize: NSFont.systemFontSize + 1)
         for item in items {
-            let row = NSMenuItem(title: item.displayName, action: #selector(activate(_:)), keyEquivalent: "")
+            let row = NSMenuItem(title: "", action: #selector(activate(_:)), keyEquivalent: "")
+            row.attributedTitle = NSAttributedString(string: item.displayName, attributes: [.font: rowFont])
             row.target = self
             row.representedObject = item
             row.image = rowImage(for: item)
