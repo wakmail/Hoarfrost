@@ -2451,6 +2451,18 @@ extension MenuBarItemManager {
             throw EventError.cannotComplete
         }
 
+        if mouseButton == .left, appState.settings.advanced.useAXClickDelivery {
+            let snapshot = ClickReactionVerifier.snapshot(for: item)
+            do {
+                try await AXItemActivator.activate(item: item)
+                let reaction = await ClickReactionVerifier.verify(against: snapshot)
+                MenuBarItemManager.diagLog.debug("AX activation of \(item.logString) done, reaction: \(reaction)")
+                return
+            } catch {
+                MenuBarItemManager.diagLog.debug("AX activation failed (\(error)); using synthetic click")
+            }
+        }
+
         if !skipInputPause {
             try await waitForUserToPauseInput()
         }
