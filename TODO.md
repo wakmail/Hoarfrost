@@ -105,7 +105,12 @@ Manual test plan (quit Ice first, then run the Thaw scheme):
 7. Set a section's style to Dropdown menu, click its divider, pick an item.
 8. Turn on the combined dropdown toggle and click the app icon.
 
-### 3. Speed
+### 3. Speed (first piece done)
+- Backported Thaw 2.0's accessibility click delivery (`AXItemActivator`,
+  `ClickReactionVerifier`, flag `UseAXClickDelivery`, default on). Left
+  clicks try AXShowMenu then AXPress and fall back to the synthetic click.
+  If some item misbehaves, `defaults write <bundle id> UseAXClickDelivery -bool NO`
+  turns it off.
 - Backport from 2.0 in this order: `AXItemActivator` (click without fake mouse
   events), `LayoutSolver` plus `LayoutReconciler` (batch moves, skip items
   already in place), image cache rate limiting.
