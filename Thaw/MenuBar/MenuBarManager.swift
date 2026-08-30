@@ -86,6 +86,9 @@ final class MenuBarManager: ObservableObject {
             MenuBarSection.Name(id: definition.id, rank: index + 1, displayName: definition.displayName)
         }
         sections = names.map(MenuBarSection.init(name:))
+        for definition in sectionsConfiguration.hiddenSections {
+            sections.first { $0.name.id == definition.id }?.revealStyle = definition.revealStyle
+        }
         publishConfiguredNames()
         configureCancellables()
         iceBarPanel.performSetup(with: appState)
@@ -140,6 +143,20 @@ final class MenuBarManager: ObservableObject {
         Task {
             await appState.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
         }
+    }
+
+    /// Changes how a section reveals its items.
+    func setRevealStyle(_ style: SectionRevealStyle, forSectionID id: String) {
+        guard let index = sectionsConfiguration.hiddenSections.firstIndex(where: { $0.id == id }) else { return }
+        sectionsConfiguration.hiddenSections[index].revealStyle = style
+        if let section = sections.first(where: { $0.name.id == id }) {
+            if !section.isHidden {
+                section.hide()
+            }
+            section.revealStyle = style
+        }
+        saveSectionsConfiguration()
+        objectWillChange.send()
     }
 
     func renameSection(id: String, to displayName: String) {

@@ -752,6 +752,11 @@ final class ControlItem {
         statusItem.showMenu(menu)
     }
 
+    /// Presents an arbitrary menu under the status item.
+    func present(_ menu: NSMenu) {
+        statusItem.showMenu(menu)
+    }
+
     /// Toggles the menu bar section associated with the given menu item.
     @objc private func toggleMenuBarSection(for menuItem: NSMenuItem) {
         guard let section = menuItem.representedObject as? MenuBarSection else {

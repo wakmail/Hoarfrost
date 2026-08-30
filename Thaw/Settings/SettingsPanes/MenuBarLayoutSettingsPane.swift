@@ -56,6 +56,16 @@ struct MenuBarLayoutSettingsPane: View {
                                 .onSubmit { appState.menuBarManager.renameSection(id: section.name.id, to: sectionNameDraft); sectionBeingRenamed = nil }
                         } else { Text(section.name.displayString) }
                         Spacer()
+                        Picker("", selection: Binding(
+                            get: { section.revealStyle },
+                            set: { appState.menuBarManager.setRevealStyle($0, forSectionID: section.name.id) }
+                        )) {
+                            ForEach(SectionRevealStyle.allCases, id: \.self) { style in
+                                Text(style.displayName).tag(style)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 170)
                         Button("Rename") { sectionNameDraft = section.name.displayName; sectionBeingRenamed = section.name.id }
                         Button("Up") { appState.menuBarManager.moveSection(id: section.name.id, offset: -1) }
                             .disabled(section.name.rank == 1)

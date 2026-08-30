@@ -91,6 +91,13 @@ final class MenuBarSection {
     /// The name of the section.
     var name: Name
 
+    /// How the section reveals its items. Set from the persisted
+    /// configuration by `MenuBarManager`.
+    var revealStyle: SectionRevealStyle = .automatic
+
+    /// The dropdown used by the `menu` reveal style.
+    private var dropdownMenu: SectionDropdownMenu?
+
     /// The control item that manages the section.
     let controlItem: ControlItem
 
@@ -111,9 +118,16 @@ final class MenuBarSection {
     /// on the current active display.
     private var useIceBar: Bool {
         guard let appState else { return false }
-        let screen = screenForIceBar
-        let displayID = screen?.displayID ?? CGMainDisplayID()
-        return appState.settings.displaySettings.useIceBar(for: displayID)
+        switch revealStyle {
+        case .bar:
+            return true
+        case .push, .menu:
+            return false
+        case .automatic:
+            let screen = screenForIceBar
+            let displayID = screen?.displayID ?? CGMainDisplayID()
+            return appState.settings.displaySettings.useIceBar(for: displayID)
+        }
     }
 
     /// The gap that macOS leaves to the left and right of the notch (in points).
@@ -273,6 +287,16 @@ final class MenuBarSection {
         menuBarManager.updateLastShowTimestamp()
 
         guard controlItem.isAddedToMenuBar else {
+            return
+        }
+
+        if revealStyle == .menu, let appState {
+            // Items stay physically hidden; the menu shows their images.
+            menuBarManager.iceBarPanel.close()
+            if dropdownMenu == nil {
+                dropdownMenu = SectionDropdownMenu(appState: appState, sectionName: name)
+            }
+            dropdownMenu?.show(from: controlItem)
             return
         }
 
