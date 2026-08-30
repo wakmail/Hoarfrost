@@ -170,6 +170,13 @@ final class MenuBarManager: ObservableObject {
         }
     }
 
+    /// Chooses whether dropdown rows show app icons or captured images.
+    func setDropdownShowsAppIcons(_ enabled: Bool) {
+        sectionsConfiguration.dropdownShowsAppIcons = enabled
+        saveSectionsConfiguration()
+        objectWillChange.send()
+    }
+
     /// Chooses whether the app icon opens one combined dropdown.
     func setIceIconOpensCombinedMenu(_ enabled: Bool) {
         sectionsConfiguration.iceIconOpensCombinedMenu = enabled
@@ -527,8 +534,23 @@ final class MenuBarManager: ObservableObject {
     }
 
     /// Shows the secondary context menu.
+    /// Builders kept alive while the secondary context menu is open.
+    private var contextMenuBuilders: [SectionDropdownMenu] = []
+
     func showSecondaryContextMenu(at point: CGPoint) {
         let menu = NSMenu(title: "\(Constants.displayName)")
+
+        // Every section first, as a submenu of its items, so a menu bar with
+        // no chevrons and no icon still reaches each section by mouse.
+        if let appState {
+            let combined = SectionDropdownMenu.makeCombinedMenu(appState: appState)
+            contextMenuBuilders = combined.builders
+            for item in combined.menu.items {
+                combined.menu.removeItem(item)
+                menu.addItem(item)
+            }
+            menu.addItem(.separator())
+        }
 
         let editAppearanceItem = NSMenuItem(
             title: String(localized: "Edit Menu Bar Appearance…"),

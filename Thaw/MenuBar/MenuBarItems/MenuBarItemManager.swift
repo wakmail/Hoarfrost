@@ -2736,12 +2736,26 @@ extension MenuBarItemManager {
                 opened = Set(owned.map(\.windowID))
             }
             guard !opened.isEmpty else { return }
-            while opened.contains(where: { Bridging.isWindowOnScreen($0) }) {
+            // Keep waiting while the app has any window on screen that was
+            // not there before the click: a menu that opens a panel, a
+            // popover that swaps windows. Rehide once the app has shown
+            // nothing new for a short grace period.
+            var quietSince: ContinuousClock.Instant?
+            while true {
                 try? await Task.sleep(for: .milliseconds(80))
                 if Task.isCancelled { return }
+                let newIDs = Bridging.getWindowList(option: .onScreen).filter { !windowsBefore.contains($0) }
+                let ownedOnScreen = WindowInfo.createWindows(from: newIDs).contains { pids.contains($0.ownerPID) }
+                if ownedOnScreen {
+                    quietSince = nil
+                    continue
+                }
+                let since = quietSince ?? ContinuousClock.now
+                quietSince = since
+                if ContinuousClock.now - since >= .milliseconds(350) {
+                    break
+                }
             }
-            try? await Task.sleep(for: .milliseconds(50))
-            if Task.isCancelled { return }
             // Never fight the user's own drag; the timer will catch up.
             while await MainActor.run(body: { self.appState?.isDraggingMenuBarItem ?? false }) {
                 try? await Task.sleep(for: .milliseconds(200))

@@ -75,6 +75,10 @@ struct MenuBarLayoutSettingsPane: View {
                     }
                 }
                 Button("Add Section") { appState.menuBarManager.addSection() }
+                Toggle("Show app icons in dropdowns instead of menu bar images", isOn: Binding(
+                    get: { appState.menuBarManager.sectionsConfiguration.dropdownShowsAppIcons },
+                    set: { appState.menuBarManager.setDropdownShowsAppIcons($0) }
+                ))
                 Toggle("Clicking the menu bar icon opens one dropdown with every section", isOn: Binding(
                     get: { appState.menuBarManager.sectionsConfiguration.iceIconOpensCombinedMenu },
                     set: { appState.menuBarManager.setIceIconOpensCombinedMenu($0) }

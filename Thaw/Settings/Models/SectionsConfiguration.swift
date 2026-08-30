@@ -67,21 +67,26 @@ struct SectionsConfiguration: Codable, Hashable, Sendable {
     /// When true, clicking the app's own menu bar icon opens one dropdown
     /// with a submenu per section instead of toggling the first section.
     var iceIconOpensCombinedMenu: Bool = false
+    /// Show each app's icon in dropdown rows instead of the captured menu
+    /// bar image.
+    var dropdownShowsAppIcons: Bool = false
 
     static let defaults = SectionsConfiguration(hiddenSections: [.hidden, .alwaysHidden])
 
-    init(hiddenSections: [SectionDefinition], iceIconOpensCombinedMenu: Bool = false) {
+    init(hiddenSections: [SectionDefinition], iceIconOpensCombinedMenu: Bool = false, dropdownShowsAppIcons: Bool = false) {
         self.hiddenSections = hiddenSections
         self.iceIconOpensCombinedMenu = iceIconOpensCombinedMenu
+        self.dropdownShowsAppIcons = dropdownShowsAppIcons
     }
 
     private enum CodingKeys: String, CodingKey {
-        case hiddenSections, iceIconOpensCombinedMenu
+        case hiddenSections, iceIconOpensCombinedMenu, dropdownShowsAppIcons
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         hiddenSections = try container.decode([SectionDefinition].self, forKey: .hiddenSections)
         iceIconOpensCombinedMenu = try container.decodeIfPresent(Bool.self, forKey: .iceIconOpensCombinedMenu) ?? false
+        dropdownShowsAppIcons = try container.decodeIfPresent(Bool.self, forKey: .dropdownShowsAppIcons) ?? false
     }
 }

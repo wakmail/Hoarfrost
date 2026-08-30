@@ -105,6 +105,13 @@ Manual test plan (quit Ice first, then run the Thaw scheme):
 7. Set a section's style to Dropdown menu, click its divider, pick an item.
 8. Turn on the combined dropdown toggle and click the app icon.
 
+### 2c. Raw mode ideas (not built yet)
+- Click on empty menu bar space cycles through sections instead of toggling
+  rank 1.
+- Split empty menu bar space: left half opens one section, right half
+  another.
+- Right click on empty space already lists every section with its items.
+
 ### 3. Speed (first piece done)
 - Backported Thaw 2.0's accessibility click delivery (`AXItemActivator`,
   `ClickReactionVerifier`, flag `UseAXClickDelivery`, default on). Left

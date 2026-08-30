@@ -19,8 +19,9 @@ import Cocoa
 final class SectionDropdownMenu: NSObject {
     private static let diagLog = DiagLog(category: "SectionDropdownMenu")
 
-    /// Row image height in points.
-    private static let rowImageHeight: CGFloat = 16
+    /// Largest row image height in points. Captured images keep their own
+    /// size below this so they look like they do in the menu bar.
+    private static let maxRowImageHeight: CGFloat = 22
 
     private weak var appState: AppState?
     private let sectionName: MenuBarSection.Name
@@ -95,17 +96,19 @@ final class SectionDropdownMenu: NSObject {
     /// the owning app's icon when no capture exists yet.
     private func rowImage(for item: MenuBarItem) -> NSImage? {
         guard let appState else { return nil }
-        let height = Self.rowImageHeight
-        if let captured = appState.imageCache.image(for: item.tag) {
+        let maxHeight = Self.maxRowImageHeight
+        let wantsAppIcon = appState.menuBarManager.sectionsConfiguration.dropdownShowsAppIcons
+        if !wantsAppIcon, let captured = appState.imageCache.image(for: item.tag) {
             let image = captured.nsImage
             let size = captured.scaledSize
-            guard size.height > 0 else { return image }
-            image.size = CGSize(width: size.width * height / size.height, height: height)
+            if size.height > maxHeight {
+                image.size = CGSize(width: size.width * maxHeight / size.height, height: maxHeight)
+            }
             return image
         }
         if let url = item.sourceApplication?.bundleURL ?? item.owningApplication?.bundleURL {
             let icon = NSWorkspace.shared.icon(forFile: url.path)
-            icon.size = CGSize(width: height, height: height)
+            icon.size = CGSize(width: maxHeight, height: maxHeight)
             return icon
         }
         return nil
