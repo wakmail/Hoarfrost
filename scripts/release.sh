@@ -35,7 +35,7 @@ ditto -c -k --keepParent "$APP" "$ZIP"
 
 SPARKLE=$(find "$DD/SourcePackages/artifacts" -type d -name bin -path '*parkle*' | head -1)
 CAST="$WORK/cast"; mkdir "$CAST"; cp "$DMG" "$CAST/"
-"$SPARKLE/generate_appcast" \
+"$SPARKLE/generate_appcast" --account Hoarfrost \
   --download-url-prefix "https://github.com/wakmail/Hoarfrost/releases/download/v$VERSION/" \
   "$CAST"
 
