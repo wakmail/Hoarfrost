@@ -373,14 +373,37 @@ final class MenuBarItemImageCache: ObservableObject {
     /// Search, Layout Settings) instead of each view running its own loop.
     /// Heavy work (`refreshImages`) is `nonisolated` and runs off the main
     /// actor — only navigation state reads happen on `@MainActor`.
+    /// Captures the given sections' items once, right now, offscreen items
+    /// included. Used to warm the cache the moment interaction starts.
+    @MainActor
+    func warmImages(sections: [MenuBarSection.Name]) async {
+        guard let appState else { return }
+        let displayID = appState.itemManager.itemCache.displayID
+            ?? Bridging.getActiveMenuBarDisplayID()
+            ?? CGMainDisplayID()
+        guard let screen = NSScreen.screens.first(where: { $0.displayID == displayID }) else { return }
+        for section in sections {
+            let items = appState.itemManager.itemCache.managedItems(for: section)
+            guard !items.isEmpty else { continue }
+            await refreshImages(of: items, scale: screen.backingScaleFactor)
+        }
+    }
+
     @MainActor
     private func runLiveRefreshLoop(appState: AppState) async {
         MenuBarItemImageCache.diagLog.debug("Live refresh loop started")
 
+        var isFirstPass = true
         while !Task.isCancelled {
-            let interval = appState.settings.advanced.iconRefreshInterval
-            let ms = Int(interval * 1000)
-            try? await Task.sleep(for: .milliseconds(ms))
+            if isFirstPass {
+                // Capture immediately so a freshly opened bar has content
+                // now, not one refresh interval from now.
+                isFirstPass = false
+            } else {
+                let interval = appState.settings.advanced.iconRefreshInterval
+                let ms = Int(interval * 1000)
+                try? await Task.sleep(for: .milliseconds(ms))
+            }
             guard !Task.isCancelled else { break }
 
             let nav = appState.navigationState

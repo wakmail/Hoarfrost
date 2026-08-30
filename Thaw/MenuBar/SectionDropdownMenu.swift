@@ -60,7 +60,7 @@ final class SectionDropdownMenu: NSObject {
         // next, dropdown or bar, has current images waiting.
         let names = appState.menuBarManager.sections.filter { !$0.name.isVisible }.map(\.name)
         Task {
-            await appState.imageCache.updateCache(sections: names)
+            await appState.imageCache.warmImages(sections: names)
         }
         return menu
     }

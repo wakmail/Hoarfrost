@@ -195,7 +195,7 @@ final class MenuBarManager: ObservableObject {
             if let appState {
                 let names = sections.filter { !$0.name.isVisible }.map(\.name)
                 Task {
-                    await appState.imageCache.updateCache(sections: names)
+                    await appState.imageCache.warmImages(sections: names)
                 }
             }
         } else {
