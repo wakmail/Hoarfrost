@@ -19,9 +19,11 @@ import Cocoa
 final class SectionDropdownMenu: NSObject {
     private static let diagLog = DiagLog(category: "SectionDropdownMenu")
 
-    /// Row image height in points. Sized to read like the menu bar without
-    /// inflating the menu's row spacing.
+    /// Row image bounds in points. Icons shrink to fit inside, never grow.
+    /// The width cap keeps wide text style items from reading as giant
+    /// buttons next to narrow glyphs.
     private static let rowImageHeight: CGFloat = 17
+    private static let rowImageMaxWidth: CGFloat = 26
 
     private weak var appState: AppState?
     private let sectionName: MenuBarSection.Name
@@ -188,11 +190,11 @@ final class SectionDropdownMenu: NSObject {
             let cgImage = captured.cgImage.trimmedToOpaqueBounds() ?? captured.cgImage
             let size = CGSize(width: CGFloat(cgImage.width) / captured.scale, height: CGFloat(cgImage.height) / captured.scale)
             let image = NSImage(cgImage: cgImage, size: size)
-            if size.height > 0 {
-                // Downscale only. Blowing a small glyph up to the row height
-                // makes it look thick and soft.
-                let target = min(height, size.height)
-                image.size = CGSize(width: size.width * target / size.height, height: target)
+            if size.height > 0, size.width > 0 {
+                // Downscale only, fitting both dimensions. Blowing a small
+                // glyph up makes it look thick and soft.
+                let scale = min(1, height / size.height, Self.rowImageMaxWidth / size.width)
+                image.size = CGSize(width: size.width * scale, height: size.height * scale)
             }
             return image
         }
