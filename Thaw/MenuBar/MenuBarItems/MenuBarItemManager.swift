@@ -1986,14 +1986,27 @@ extension MenuBarItemManager {
         let start: CGPoint
         let end: CGPoint
 
-        switch destination {
-        case .leftOfItem:
-            start = CGPoint(x: targetBounds.minX, y: targetBounds.minY)
-        case .rightOfItem:
-            start = CGPoint(x: targetBounds.maxX, y: targetBounds.minY)
+        if #available(macOS 26.0, *) {
+            switch destination {
+            case .leftOfItem:
+                start = CGPoint(x: targetBounds.minX, y: targetBounds.minY)
+            case .rightOfItem:
+                start = CGPoint(x: targetBounds.maxX, y: targetBounds.minY)
+            }
+            end = start
+        } else {
+            // Ice's geometry, which works on macOS 14 and 15: press far off
+            // screen (the event carries the item's window id, so the point
+            // does not need to be inside it) and release at the target's
+            // vertical middle rather than its top edge.
+            start = CGPoint(x: 20_000, y: 20_000)
+            switch destination {
+            case .leftOfItem:
+                end = CGPoint(x: targetBounds.minX, y: targetBounds.midY)
+            case .rightOfItem:
+                end = CGPoint(x: targetBounds.maxX, y: targetBounds.midY)
+            }
         }
-
-        end = start
 
         MenuBarItemManager.diagLog.debug(
             "Move points: startX=\(start.x) endX=\(end.x) startY=\(start.y) targetMinX=\(targetBounds.minX) itemMinX=\(itemBounds.minX) targetTag=\(destination.targetItem.tag) itemTag=\(item.tag) display=\(displayID)"
@@ -2827,7 +2840,7 @@ extension MenuBarItemManager {
                 // Single attempt move — the first attempt always repositions the item
                 // close enough. Skipping retries eliminates the visible jitter from
                 // the 8-attempt retry loop with exponentially increasing timeouts.
-                try await move(item: item, to: moveDestination, on: resolvedDisplayID, skipInputPause: true, maxMoveAttempts: 1)
+                try await move(item: item, to: moveDestination, on: resolvedDisplayID, skipInputPause: true, maxMoveAttempts: 3)
             } else {
                 try await move(item: item, to: moveDestination, on: resolvedDisplayID, skipInputPause: true)
             }
