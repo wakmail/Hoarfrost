@@ -19,9 +19,11 @@ import Cocoa
 final class SectionDropdownMenu: NSObject {
     private static let diagLog = DiagLog(category: "SectionDropdownMenu")
 
-    /// Row image height in points. Sized to read like the menu bar without
-    /// inflating the menu's row spacing.
+    /// Row image bounds in points. Icons shrink to fit inside, never grow.
+    /// The width cap keeps wide text style items from reading as giant
+    /// buttons next to narrow glyphs.
     private static let rowImageHeight: CGFloat = 17
+    private static let rowImageMaxWidth: CGFloat = 26
 
     private weak var appState: AppState?
     private let sectionName: MenuBarSection.Name
@@ -183,25 +185,42 @@ final class SectionDropdownMenu: NSObject {
         let height = Self.rowImageHeight
         let wantsAppIcon = appState.menuBarManager.sectionsConfiguration.dropdownShowsAppIcons
         if !wantsAppIcon, let captured = appState.imageCache.image(for: item.tag) {
-            // The capture includes the item's transparent padding; trim it
-            // so the glyph itself fills the row height like an app icon.
-            let cgImage = captured.cgImage.trimmedToOpaqueBounds() ?? captured.cgImage
+            // Every capture shares the menu bar's height, so scaling the
+            // padded image by one uniform factor keeps each glyph at its
+            // true relative size and vertical position. Only the extra
+            // transparent width is chopped off.
+            let band = 18 * captured.scale
+            let cgImage = captured.cgImage.croppedToMenuBarGlyphBand(bandHeight: band) ?? captured.cgImage
             let size = CGSize(width: CGFloat(cgImage.width) / captured.scale, height: CGFloat(cgImage.height) / captured.scale)
             let image = NSImage(cgImage: cgImage, size: size)
-            if size.height > 0 {
-                // Downscale only. Blowing a small glyph up to the row height
-                // makes it look thick and soft.
-                let target = min(height, size.height)
-                image.size = CGSize(width: size.width * target / size.height, height: target)
+            if size.height > 0, size.width > 0 {
+                let scale = min(1, height / size.height, Self.rowImageMaxWidth / size.width)
+                image.size = CGSize(width: size.width * scale, height: size.height * scale)
             }
-            return image
+            return Self.centered(image, in: CGSize(width: Self.rowImageMaxWidth + 2, height: height))
         }
         if let url = item.sourceApplication?.bundleURL ?? item.owningApplication?.bundleURL {
             let icon = NSWorkspace.shared.icon(forFile: url.path)
             icon.size = CGSize(width: height, height: height)
-            return icon
+            return Self.centered(icon, in: CGSize(width: Self.rowImageMaxWidth + 2, height: height))
         }
         return nil
+    }
+
+    /// Draws the image centered on a fixed size transparent canvas, so every
+    /// menu row's title starts at the same x and every glyph sits centered
+    /// in its column.
+    private static func centered(_ image: NSImage, in canvasSize: CGSize) -> NSImage {
+        let canvas = NSImage(size: canvasSize)
+        canvas.lockFocus()
+        let size = image.size
+        let origin = CGPoint(
+            x: (canvasSize.width - size.width) / 2,
+            y: (canvasSize.height - size.height) / 2
+        )
+        image.draw(in: CGRect(origin: origin, size: size))
+        canvas.unlockFocus()
+        return canvas
     }
 
     @objc private func activate(_ sender: NSMenuItem) {
@@ -227,10 +246,12 @@ final class SectionDropdownMenu: NSObject {
 }
 
 private extension CGImage {
-    /// The image cropped to the smallest rectangle containing every pixel
-    /// with meaningful alpha, or nil when the image is fully transparent or
-    /// unreadable. One point of padding is kept on every side.
-    func trimmedToOpaqueBounds() -> CGImage? {
+    /// Crops a status item capture for a dropdown row: transparent width is
+    /// removed, and the height is cut to a band centered on the bar, where
+    /// every glyph lives, so one shared scale factor renders each glyph at
+    /// its true relative size. A glyph taller than the band is cropped to
+    /// its own bounds instead so nothing gets clipped.
+    func croppedToMenuBarGlyphBand(bandHeight: CGFloat) -> CGImage? {
         let width = self.width
         let height = self.height
         guard width > 0, height > 0 else { return nil }
@@ -259,11 +280,23 @@ private extension CGImage {
             }
         }
         guard maxX >= minX, maxY >= minY else { return nil }
+        let opaqueHeight = CGFloat(maxY - minY + 1)
+        let y: CGFloat
+        let cropHeight: CGFloat
+        if opaqueHeight <= bandHeight {
+            // One fixed band centered on the bar keeps every glyph's
+            // relative size and vertical position.
+            y = max(0, (CGFloat(height) - bandHeight) / 2)
+            cropHeight = min(CGFloat(height), bandHeight)
+        } else {
+            y = CGFloat(max(0, minY - 1))
+            cropHeight = min(CGFloat(height), opaqueHeight + 2)
+        }
         let rect = CGRect(
-            x: max(0, minX - 1),
-            y: max(0, minY - 1),
-            width: min(width, maxX - minX + 3),
-            height: min(height, maxY - minY + 3)
+            x: CGFloat(max(0, minX - 2)),
+            y: y,
+            width: CGFloat(min(width, maxX - minX + 5)),
+            height: cropHeight
         )
         return cropping(to: rect)
     }
