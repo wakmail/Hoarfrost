@@ -182,6 +182,17 @@ final class MenuBarManager: ObservableObject {
     /// window accumulate and land as one jump, so a fast double click goes
     /// straight to the second section without flashing the first.
     func cycleSections() {
+        diagLog.debug("cycleSections: click received, pending=\(pendingCycleSteps + 1)")
+        guard sectionsConfiguration.cycleWaitsForMultiClicks else {
+            performCycle(steps: 1)
+            if let appState {
+                let names = sections.filter { !$0.name.isVisible }.map(\.name)
+                Task {
+                    await appState.imageCache.warmImages(sections: names)
+                }
+            }
+            return
+        }
         pendingCycleSteps += 1
         // Warm every hidden section immediately so whatever the jump lands
         // on opens with its content already rendered.
@@ -205,6 +216,7 @@ final class MenuBarManager: ObservableObject {
     /// Jumps the cycle forward by the given number of steps and shows only
     /// the destination.
     private func performCycle(steps: Int) {
+        diagLog.debug("performCycle: steps=\(steps) fromRank=\(cycleRank.map(String.init) ?? "none")")
         let ordered = sections
             .filter { !$0.name.isVisible && $0.isEnabled }
             .sorted { $0.name.rank < $1.name.rank }
@@ -230,6 +242,13 @@ final class MenuBarManager: ObservableObject {
             cycleRank = destination.name.rank
             destination.show()
         }
+    }
+
+    /// Sets whether the cycle waits for extra clicks before opening.
+    func setCycleWaitsForMultiClicks(_ waits: Bool) {
+        sectionsConfiguration.cycleWaitsForMultiClicks = waits
+        saveSectionsConfiguration()
+        objectWillChange.send()
     }
 
     /// Sets what clicking empty menu bar space does.

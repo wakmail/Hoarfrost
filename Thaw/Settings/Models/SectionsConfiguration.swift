@@ -90,18 +90,23 @@ struct SectionsConfiguration: Codable, Hashable, Sendable {
     var dropdownShowsAppIcons: Bool = false
     /// What clicking empty menu bar space does.
     var emptyBarClickBehavior: EmptyBarClickBehavior = .toggleFirst
+    /// In cycle mode, wait for the double click window before opening so
+    /// fast multi clicks jump without flashing. Off opens instantly, and
+    /// intermediate steps may flash on multi clicks.
+    var cycleWaitsForMultiClicks: Bool = true
 
     static let defaults = SectionsConfiguration(hiddenSections: [.hidden, .alwaysHidden])
 
-    init(hiddenSections: [SectionDefinition], iceIconOpensCombinedMenu: Bool = false, dropdownShowsAppIcons: Bool = false, emptyBarClickBehavior: EmptyBarClickBehavior = .toggleFirst) {
+    init(hiddenSections: [SectionDefinition], iceIconOpensCombinedMenu: Bool = false, dropdownShowsAppIcons: Bool = false, emptyBarClickBehavior: EmptyBarClickBehavior = .toggleFirst, cycleWaitsForMultiClicks: Bool = true) {
         self.hiddenSections = hiddenSections
         self.iceIconOpensCombinedMenu = iceIconOpensCombinedMenu
         self.dropdownShowsAppIcons = dropdownShowsAppIcons
         self.emptyBarClickBehavior = emptyBarClickBehavior
+        self.cycleWaitsForMultiClicks = cycleWaitsForMultiClicks
     }
 
     private enum CodingKeys: String, CodingKey {
-        case hiddenSections, iceIconOpensCombinedMenu, dropdownShowsAppIcons, emptyBarClickBehavior
+        case hiddenSections, iceIconOpensCombinedMenu, dropdownShowsAppIcons, emptyBarClickBehavior, cycleWaitsForMultiClicks
     }
 
     init(from decoder: Decoder) throws {
@@ -110,5 +115,6 @@ struct SectionsConfiguration: Codable, Hashable, Sendable {
         iceIconOpensCombinedMenu = try container.decodeIfPresent(Bool.self, forKey: .iceIconOpensCombinedMenu) ?? false
         dropdownShowsAppIcons = try container.decodeIfPresent(Bool.self, forKey: .dropdownShowsAppIcons) ?? false
         emptyBarClickBehavior = try container.decodeIfPresent(EmptyBarClickBehavior.self, forKey: .emptyBarClickBehavior) ?? .toggleFirst
+        cycleWaitsForMultiClicks = try container.decodeIfPresent(Bool.self, forKey: .cycleWaitsForMultiClicks) ?? true
     }
 }

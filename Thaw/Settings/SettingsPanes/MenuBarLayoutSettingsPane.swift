@@ -83,6 +83,12 @@ struct MenuBarLayoutSettingsPane: View {
                         Text(behavior.displayName).tag(behavior)
                     }
                 }
+                if appState.menuBarManager.sectionsConfiguration.emptyBarClickBehavior == .cycle {
+                    Toggle("Wait for extra clicks before opening, so fast multi clicks jump without flashing", isOn: Binding(
+                        get: { appState.menuBarManager.sectionsConfiguration.cycleWaitsForMultiClicks },
+                        set: { appState.menuBarManager.setCycleWaitsForMultiClicks($0) }
+                    ))
+                }
                 Toggle("Show app icons in dropdowns instead of menu bar images", isOn: Binding(
                     get: { appState.menuBarManager.sectionsConfiguration.dropdownShowsAppIcons },
                     set: { appState.menuBarManager.setDropdownShowsAppIcons($0) }
