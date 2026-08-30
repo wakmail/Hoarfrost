@@ -197,7 +197,20 @@ final class IceBarPanel: NSPanel {
         // the panel to prevent the color from flashing.
         colorManager.updateAllProperties(with: frame, screen: screen)
 
-        orderFrontRegardless()
+        // Unfold downward from the menu bar, the dropdown flattening into
+        // the bar rather than a panel blinking into place.
+        let target = frame
+        if !isVisible, target.height > 1 {
+            setFrame(NSRect(x: target.minX, y: target.maxY - 1, width: target.width, height: 1), display: false)
+            orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.14
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                animator().setFrame(target, display: true)
+            }
+        } else {
+            orderFrontRegardless()
+        }
 
         // Rehide temporarily shown items and refresh caches in the
         // background. Ordering is preserved: rehide moves items back

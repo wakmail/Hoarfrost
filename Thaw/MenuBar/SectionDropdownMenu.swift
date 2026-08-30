@@ -19,12 +19,9 @@ import Cocoa
 final class SectionDropdownMenu: NSObject {
     private static let diagLog = DiagLog(category: "SectionDropdownMenu")
 
-    /// Row image height in points, matching the menu bar so rows look like
-    /// the icons do in the bar itself.
-    private static var rowImageHeight: CGFloat {
-        let height = NSScreen.main?.getMenuBarHeightEstimate() ?? 24
-        return max(height, 22)
-    }
+    /// Row image height in points. Sized to read like the menu bar without
+    /// inflating the menu's row spacing.
+    private static let rowImageHeight: CGFloat = 18
 
     private weak var appState: AppState?
     private let sectionName: MenuBarSection.Name
