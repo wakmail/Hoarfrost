@@ -387,6 +387,7 @@ final class MenuBarSection {
 
     /// Toggles the visibility of the section.
     func toggle(triggeredByHotkey: Bool = false) {
+        diagLog.debug("toggle: \(name.logString) isHidden=\(isHidden) desiredState=\(desiredState) revealStyle=\(revealStyle.rawValue) iceBarSection=\(menuBarManager?.iceBarPanel.currentSection?.id ?? "none") addedToMenuBar=\(controlItem.isAddedToMenuBar)")
         if isHidden {
             show(triggeredByHotkey: triggeredByHotkey)
         } else {

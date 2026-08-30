@@ -755,14 +755,11 @@ final class ControlItem {
     /// on its button places the menu nowhere useful. Pop the menu at the
     /// item's on screen frame when it has one, otherwise at the mouse.
     func present(_ menu: NSMenu) {
-        let point: NSPoint
-        if let frame = onScreenFrame {
-            point = NSPoint(x: frame.minX, y: frame.minY)
-        } else {
-            let mouse = NSEvent.mouseLocation
-            let top = NSScreen.screens.first { $0.frame.contains(mouse) }?.visibleFrame.maxY ?? mouse.y
-            point = NSPoint(x: mouse.x, y: min(mouse.y, top))
-        }
+        // At the mouse, snapped to just under the menu bar.
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        let top = screen?.visibleFrame.maxY ?? mouse.y
+        let point = NSPoint(x: mouse.x - 8, y: min(mouse.y, top))
         menu.popUp(positioning: nil, at: point, in: nil)
     }
 
