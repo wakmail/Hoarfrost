@@ -31,7 +31,7 @@ extension Bundle {
     var displayName: String {
         object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ??
             object(forInfoDictionaryKey: "CFBundleName") as? String ??
-            "Thaw"
+            "Hoarfrost"
     }
 
     /// The bundle's version string.

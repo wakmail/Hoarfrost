@@ -12,41 +12,94 @@ import SwiftUI
 @MainActor
 final class MenuBarSection {
     /// The name of a menu bar section.
-    enum Name: CaseIterable {
-        case visible
-        case hidden
-        case alwaysHidden
+    /// The identity of a section.
+    ///
+    /// Equality and hashing use `id` only, so a renamed or reordered section
+    /// still matches its cached items and persisted keys.
+    struct Name: Hashable, Codable, Sendable, Comparable {
+        /// Stable persistence key. The three defaults use the strings Ice and
+        /// Thaw always used on disk.
+        let id: String
+        /// 0 is the visible section, 1 the first hidden section, 2 the next
+        /// one to its left, and so on.
+        var rank: Int
+        var displayName: String
+
+        static let visible = Name(id: "visible", rank: 0, displayName: "Visible")
+        static let hidden = Name(id: "hidden", rank: 1, displayName: "Hidden")
+        static let alwaysHidden = Name(id: "alwaysHidden", rank: 2, displayName: "Always Hidden")
+
+        /// The sections currently configured, in rank order. Updated by
+        /// `MenuBarManager` whenever the configuration changes so code that
+        /// runs off the main actor sees the same list.
+        nonisolated(unsafe) static var configured: [Name] = [.visible, .hidden, .alwaysHidden]
+
+        /// All configured sections in rank order.
+        static var allCases: [Name] { configured }
+
+        var rawValue: String { id }
+        var isVisible: Bool { rank == 0 }
+        /// Whether this is one of the three sections Ice and Thaw shipped with.
+        var isDefault: Bool { id == "visible" || id == "hidden" || id == "alwaysHidden" }
+
+        /// The control item identifier for this section. Derived from `id`,
+        /// never from rank, so divider positions survive reordering.
+        var controlItemIdentifier: ControlItem.Identifier {
+            switch id {
+            case "visible": .visible
+            case "hidden": .hidden
+            case "alwaysHidden": .alwaysHidden
+            default: ControlItem.Identifier(rawValue: "Thaw.ControlItem.Section.\(id)")
+            }
+        }
+
+        /// The hotkey action that toggles this section, or nil for visible.
+        var hotkeyAction: HotkeyAction? {
+            switch id {
+            case "visible": nil
+            case "hidden": .toggleHiddenSection
+            case "alwaysHidden": .toggleAlwaysHiddenSection
+            default: .toggleSection(id: id)
+            }
+        }
+
+        static func == (lhs: Name, rhs: Name) -> Bool { lhs.id == rhs.id }
+        func hash(into hasher: inout Hasher) { hasher.combine(id) }
+        static func < (lhs: Name, rhs: Name) -> Bool { lhs.rank < rhs.rank }
 
         /// A string to show in the interface.
         var displayString: String {
-            switch self {
-            case .visible: "Visible"
-            case .hidden: "Hidden"
-            case .alwaysHidden: "Always-Hidden"
-            }
+            displayName
         }
 
         /// A string to use for logging purposes.
         var logString: String {
-            switch self {
-            case .visible: "visible section"
-            case .hidden: "hidden section"
-            case .alwaysHidden: "always-hidden section"
-            }
+            "\(displayName.lowercased()) section"
         }
 
         /// Localized string key representation.
         var localized: LocalizedStringKey {
-            switch self {
-            case .visible: "Visible"
-            case .hidden: "Hidden"
-            case .alwaysHidden: "Always-Hidden"
+            switch id {
+            case "visible": "Visible"
+            case "hidden": "Hidden"
+            case "alwaysHidden": "Always-Hidden"
+            default: LocalizedStringKey(displayName)
             }
         }
     }
 
     /// The name of the section.
-    let name: Name
+    var name: Name
+
+    /// How the section reveals its items. Set from the persisted
+    /// configuration by `MenuBarManager`.
+    var revealStyle: SectionRevealStyle = .automatic
+
+    /// The dropdown used by the `menu` reveal style.
+    private var dropdownMenu: SectionDropdownMenu?
+
+    /// Builders kept alive while the combined menu is open.
+    private var combinedMenuBuilders: [SectionDropdownMenu] = []
 
     /// The control item that manages the section.
     let controlItem: ControlItem
@@ -68,9 +121,16 @@ final class MenuBarSection {
     /// on the current active display.
     private var useIceBar: Bool {
         guard let appState else { return false }
-        let screen = screenForIceBar
-        let displayID = screen?.displayID ?? CGMainDisplayID()
-        return appState.settings.displaySettings.useIceBar(for: displayID)
+        switch revealStyle {
+        case .bar:
+            return true
+        case .push, .menu:
+            return false
+        case .automatic:
+            let screen = screenForIceBar
+            let displayID = screen?.displayID ?? CGMainDisplayID()
+            return appState.settings.displaySettings.useIceBar(for: displayID)
+        }
     }
 
     /// The gap that macOS leaves to the left and right of the notch (in points).
@@ -92,24 +152,10 @@ final class MenuBarSection {
         // Calculate total width of items in the sections we want to show
         var totalItemsWidth: CGFloat = 0
 
-        switch name {
-        case .visible, .hidden:
-            // Include both hidden and visible items
-            let hiddenItems = appState.itemManager.itemCache[Name.hidden]
-            let visibleItems = appState.itemManager.itemCache[Name.visible]
-            let hiddenWidth = hiddenItems.reduce(0) { acc, item in acc + item.bounds.width }
-            let visibleWidth = visibleItems.reduce(0) { acc, item in acc + item.bounds.width }
-            totalItemsWidth = hiddenWidth + visibleWidth
-        case .alwaysHidden:
-            // Include always-hidden, hidden, and visible items
-            let alwaysHiddenItems = appState.itemManager.itemCache[Name.alwaysHidden]
-            let hiddenItems = appState.itemManager.itemCache[Name.hidden]
-            let visibleItems = appState.itemManager.itemCache[Name.visible]
-            let alwaysHiddenWidth = alwaysHiddenItems.reduce(0) { acc, item in acc + item.bounds.width }
-            let hiddenWidth = hiddenItems.reduce(0) { acc, item in acc + item.bounds.width }
-            let visibleWidth = visibleItems.reduce(0) { acc, item in acc + item.bounds.width }
-            totalItemsWidth = alwaysHiddenWidth + hiddenWidth + visibleWidth
-        }
+        totalItemsWidth = appState.menuBarManager.sections
+            .filter { $0.name.rank <= name.rank }
+            .flatMap { appState.itemManager.itemCache[$0.name] }
+            .reduce(0) { $0 + $1.bounds.width }
 
         // Get the right edge of the application menu
         let appMenuRightEdge = appMenuFrame.maxX
@@ -160,30 +206,15 @@ final class MenuBarSection {
             if controlItem.state == .showSection {
                 return false
             }
-            switch name {
-            case .visible, .hidden:
-                return menuBarManager?.iceBarPanel.currentSection != .hidden
-            case .alwaysHidden:
-                return menuBarManager?.iceBarPanel.currentSection != .alwaysHidden
-            }
+            return menuBarManager?.iceBarPanel.currentSection?.rank != name.rank
         }
-        switch name {
-        case .visible, .hidden:
-            if menuBarManager?.iceBarPanel.currentSection == .hidden {
-                return false
-            }
-            return desiredState == .hideSection
-        case .alwaysHidden:
-            if menuBarManager?.iceBarPanel.currentSection == .alwaysHidden {
-                return false
-            }
-            return desiredState == .hideSection
-        }
+        if menuBarManager?.iceBarPanel.currentSection?.rank == name.rank { return false }
+        return desiredState == .hideSection
     }
 
     /// A Boolean value that indicates whether the section is enabled.
     var isEnabled: Bool {
-        if case .visible = name {
+        if name.isVisible {
             // The visible section should always be enabled.
             return true
         }
@@ -195,11 +226,8 @@ final class MenuBarSection {
         guard let hotkeys = appState?.settings.hotkeys else {
             return nil
         }
-        return switch name {
-        case .visible: nil
-        case .hidden: hotkeys.hotkey(withAction: .toggleHiddenSection)
-        case .alwaysHidden: hotkeys.hotkey(withAction: .toggleAlwaysHiddenSection)
-        }
+        guard let action = name.hotkeyAction else { return nil }
+        return hotkeys.hotkey(withAction: action)
     }
 
     /// Creates a section with the given name and control item.
@@ -210,14 +238,7 @@ final class MenuBarSection {
 
     /// Creates a section with the given name.
     convenience init(name: Name) {
-        let controlItem = switch name {
-        case .visible:
-            ControlItem(identifier: .visible)
-        case .hidden:
-            ControlItem(identifier: .hidden)
-        case .alwaysHidden:
-            ControlItem(identifier: .alwaysHidden)
-        }
+        let controlItem = ControlItem(identifier: name.controlItemIdentifier)
         self.init(name: name, controlItem: controlItem)
     }
 
@@ -253,7 +274,7 @@ final class MenuBarSection {
         let alwaysShow = displaySettings.alwaysShowHiddenItems(for: activeScreen.displayID)
         let useIceBar = displaySettings.useIceBar(for: activeScreen.displayID)
 
-        if name == .hidden || name == .visible, alwaysShow, !useIceBar {
+        if name.rank <= 1, alwaysShow, !useIceBar {
             controlItem.state = .showSection
         } else {
             controlItem.state = desiredState
@@ -269,6 +290,27 @@ final class MenuBarSection {
         menuBarManager.updateLastShowTimestamp()
 
         guard controlItem.isAddedToMenuBar else {
+            return
+        }
+
+        if name.isVisible, let appState, menuBarManager.sectionsConfiguration.iceIconOpensCombinedMenu {
+            // One icon, every section: a dropdown with a submenu per section.
+            menuBarManager.iceBarPanel.close()
+            let combined = SectionDropdownMenu.makeCombinedMenu(appState: appState)
+            combinedMenuBuilders = combined.builders
+            controlItem.present(combined.menu)
+            return
+        }
+
+        diagLog.debug("show: \(name.logString) revealStyle=\(revealStyle.rawValue)")
+
+        if revealStyle == .menu, let appState {
+            // Items stay physically hidden; the menu shows their images.
+            menuBarManager.iceBarPanel.close()
+            if dropdownMenu == nil {
+                dropdownMenu = SectionDropdownMenu(appState: appState, sectionName: name)
+            }
+            dropdownMenu?.show(from: controlItem)
             return
         }
 
@@ -290,30 +332,24 @@ final class MenuBarSection {
             // Still update the visible control item (Ice icon) state to show
             // its alternate icon.
             for section in menuBarManager.sections {
-                switch section.name {
-                case .visible:
+                if section.name.isVisible {
                     section.desiredState = .showSection
-                case .hidden, .alwaysHidden:
+                } else {
                     section.desiredState = .hideSection
                 }
                 section.updateControlItemState(for: nil)
             }
 
             if let screen = screenForIceBar {
-                switch name {
-                case .visible, .hidden:
-                    menuBarManager.iceBarPanel.show(
-                        section: .hidden,
-                        on: screen,
-                        triggeredByHotkey: triggeredByHotkey
-                    )
-                case .alwaysHidden:
-                    menuBarManager.iceBarPanel.show(
-                        section: .alwaysHidden,
-                        on: screen,
-                        triggeredByHotkey: triggeredByHotkey
-                    )
-                }
+                // The visible section (the app icon) opens the first hidden section.
+                let target = name.isVisible
+                    ? (menuBarManager.sections.first { $0.name.rank == 1 }?.name ?? name)
+                    : name
+                menuBarManager.iceBarPanel.show(
+                    section: target,
+                    on: screen,
+                    triggeredByHotkey: triggeredByHotkey
+                )
                 startRehideChecks()
             }
 
@@ -324,17 +360,9 @@ final class MenuBarSection {
         // Make sure it's closed.
         menuBarManager.iceBarPanel.close()
 
-        switch name {
-        case .visible, .hidden:
-            for section in menuBarManager.sections where section.name != .alwaysHidden {
-                section.desiredState = .showSection
-                section.updateControlItemState(for: nil)
-            }
-        case .alwaysHidden:
-            for section in menuBarManager.sections {
-                section.desiredState = .showSection
-                section.updateControlItemState(for: nil)
-            }
+        for section in menuBarManager.sections {
+            section.desiredState = section.name.rank <= name.rank ? .showSection : .hideSection
+            section.updateControlItemState(for: nil)
         }
 
         startRehideChecks()
@@ -359,6 +387,7 @@ final class MenuBarSection {
 
     /// Toggles the visibility of the section.
     func toggle(triggeredByHotkey: Bool = false) {
+        diagLog.debug("toggle: \(name.logString) isHidden=\(isHidden) desiredState=\(desiredState) revealStyle=\(revealStyle.rawValue) iceBarSection=\(menuBarManager?.iceBarPanel.currentSection?.id ?? "none") addedToMenuBar=\(controlItem.isAddedToMenuBar)")
         if isHidden {
             show(triggeredByHotkey: triggeredByHotkey)
         } else {
@@ -481,7 +510,9 @@ final class MenuBarSection {
         }
 
         rehideTask?.cancel()
-        let interval = appState.settings.general.rehideInterval
+        // Never spin: a menu that stays open would otherwise restart this
+        // task thousands of times a second when the interval is zero.
+        let interval = max(appState.settings.general.rehideInterval, 0.5)
         rehideTask = Task { [weak self, weak appState] in
             try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled, let self, let appState else { return }

@@ -199,3 +199,50 @@ struct IceSettingsImporter {
         return 0
     }
 }
+
+/// A type that handles importing settings from Thaw.
+@MainActor
+struct ThawSettingsImporter {
+    private let diagLog = DiagLog(category: "ThawSettingsImporter")
+    private static let thawBundleIdentifier = "com.stonerl.Thaw"
+
+    private static let importedMarkerKey = "HasImportedThawSettings"
+
+    /// Imports Thaw settings once, the first time the app runs.
+    func importSettingsIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.importedMarkerKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.importedMarkerKey)
+        guard
+            let oldDefaults = UserDefaults(suiteName: Self.thawBundleIdentifier),
+            let oldDomain = oldDefaults.persistentDomain(forName: Self.thawBundleIdentifier),
+            !oldDomain.isEmpty
+        else { return }
+
+        let keys: [Defaults.Key] = [
+            .showIceIcon, .iceIcon, .customIceIconIsTemplate, .useIceBar,
+            .useIceBarOnlyOnNotchedDisplay, .iceBarLocation, .iceBarLocationOnHotkey,
+            .showOnClick, .showOnDoubleClick, .showOnHover, .showOnScroll,
+            .autoRehide, .rehideStrategy, .rehideInterval, .itemSpacingOffset,
+            .displayIceBarConfigurations, .sectionsConfiguration, .hotkeys,
+            .profileHotkeys, .enableAlwaysHiddenSection, .showAllSectionsOnUserDrag,
+            .newItemsSection, .newItemsPlacementData, .sectionDividerStyle,
+            .hideApplicationMenus, .enableSecondaryContextMenu, .showOnHoverDelay,
+            .tooltipDelay, .iconRefreshInterval, .showMenuBarTooltips,
+            .enableDiagnosticLogging, .useLCSSortingOnNotchedDisplays,
+            .useOptionClickToShowAlwaysHiddenSection, .useAXClickDelivery,
+            .rememberSearchQuery, .menuBarItemCustomNames, .menuBarAppearanceConfigurationV2
+        ]
+        var imported = 0
+        for key in keys where oldDomain[key.rawValue] != nil {
+            UserDefaults.standard.set(oldDomain[key.rawValue], forKey: key.rawValue)
+            imported += 1
+        }
+        // Divider positions live in NSStatusItem autosave keys. Without them
+        // every divider lands at the far left and nothing is hidden.
+        for (key, value) in oldDomain where key.hasPrefix("NSStatusItem ") {
+            UserDefaults.standard.set(value, forKey: key)
+            imported += 1
+        }
+        diagLog.info("Imported \(imported) settings from Thaw")
+    }
+}

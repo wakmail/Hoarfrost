@@ -15,30 +15,31 @@ import Combine
 @MainActor
 final class ControlItem {
     /// An identifier for a control item.
-    enum Identifier: String, CaseIterable {
+    struct Identifier: RawRepresentable, Hashable, Sendable {
+        let rawValue: String
+        init(rawValue: String) { self.rawValue = rawValue }
+        static var allCases: [Identifier] { [.visible, .hidden, .alwaysHidden] }
         /// The identifier for the control item for the visible section.
-        case visible = "Thaw.ControlItem.Visible"
+        static let visible = Identifier(rawValue: "Thaw.ControlItem.Visible")
         /// The identifier for the control item for the hidden section.
-        case hidden = "Thaw.ControlItem.Hidden"
+        static let hidden = Identifier(rawValue: "Thaw.ControlItem.Hidden")
         /// The identifier for the control item for the always-hidden section.
-        case alwaysHidden = "Thaw.ControlItem.AlwaysHidden"
+        static let alwaysHidden = Identifier(rawValue: "Thaw.ControlItem.AlwaysHidden")
 
         /// A tag for the control item with this identifier.
         var tag: MenuBarItemTag {
-            switch self {
-            case .visible: .visibleControlItem
-            case .hidden: .hiddenControlItem
-            case .alwaysHidden: .alwaysHiddenControlItem
-            }
+            if self == .visible { return .visibleControlItem }
+            if self == .hidden { return .hiddenControlItem }
+            if self == .alwaysHidden { return .alwaysHiddenControlItem }
+            return MenuBarItemTag(controlItem: self)
         }
 
         /// Returns the length associated with this identifier and
         /// the given hiding state.
         func length(for state: HidingState) -> CGFloat {
-            switch self {
-            case .visible:
+            if self == .visible {
                 Lengths.standard
-            case .hidden, .alwaysHidden:
+            } else {
                 switch state {
                 case .showSection: Lengths.standard
                 case .hideSection: Lengths.expanded
@@ -170,11 +171,7 @@ final class ControlItem {
 
     /// The corresponding section name for the control item.
     var sectionName: MenuBarSection.Name {
-        switch identifier {
-        case .visible: .visible
-        case .hidden: .hidden
-        case .alwaysHidden: .alwaysHidden
-        }
+        MenuBarSection.Name.allCases.first { $0.controlItemIdentifier == identifier } ?? .visible
     }
 
     /// Creates a control item with the given identifier.
@@ -344,8 +341,7 @@ final class ControlItem {
         button.title = ""
         button.image = nil
 
-        switch identifier {
-        case .visible:
+        if identifier == .visible {
             if !appState.settings.general.showIceIcon {
                 hideIceIconCompletely()
                 return
@@ -374,7 +370,7 @@ final class ControlItem {
             }
 
             button.image = image
-        case .hidden, .alwaysHidden:
+        } else {
             switch state {
             case .showSection:
                 button.isEnabled = true
@@ -426,7 +422,7 @@ final class ControlItem {
             constraint?.isActive = true
             statusItem.length = identifier.length(for: state)
 
-            let shouldUseSpacers = (identifier == .hidden || identifier == .alwaysHidden) && state == .hideSection
+            let shouldUseSpacers = identifier != .visible && state == .hideSection
             updateSpacerItems(forHiddenState: shouldUseSpacers)
         } else {
             updateSpacerItems(forHiddenState: false)
@@ -501,7 +497,7 @@ final class ControlItem {
     }
 
     /// Adds the control item to the menu bar.
-    private func addToMenuBar() {
+    func addToMenuBar() {
         guard !isAddedToMenuBar else {
             return
         }
@@ -509,7 +505,7 @@ final class ControlItem {
     }
 
     /// Removes the control item from the menu bar.
-    private func removeFromMenuBar() {
+    func removeFromMenuBar() {
         guard isAddedToMenuBar else {
             return
         }
@@ -517,7 +513,7 @@ final class ControlItem {
         // effect of deleting the preferred position. Cache and restore it,
         // but only for non-section-divider items.
         let autosaveName = statusItem.autosaveName as String
-        let isSectionDivider = (identifier == .hidden || identifier == .alwaysHidden)
+        let isSectionDivider = identifier != .visible
         let cached = ControlItemDefaults[.preferredPosition, autosaveName]
         statusItem.isVisible = false
         if !isSectionDivider {
@@ -645,31 +641,28 @@ final class ControlItem {
 
         menu.addItem(.separator())
 
-        // Add items to toggle the hidden and always-hidden sections.
-        for name: MenuBarSection.Name in [.hidden, .alwaysHidden] {
-            guard
-                let section = appState.menuBarManager.section(withName: name),
-                section.isEnabled
-            else {
-                continue
-            }
+        // Add items to toggle every hidden section.
+        for section in appState.menuBarManager.sections where !section.name.isVisible && section.isEnabled {
+            let name = section.name
             let sectionTitle: String
             let iconName: String
-            switch (section.isHidden, name) {
-            case (true, .hidden):
+            switch (section.isHidden, name.id) {
+            case (true, "hidden"):
                 sectionTitle = String(localized: "Show Hidden Section")
                 iconName = "eye"
-            case (false, .hidden):
+            case (false, "hidden"):
                 sectionTitle = String(localized: "Hide Hidden Section")
                 iconName = "eye.slash"
-            case (true, .alwaysHidden):
+            case (true, "alwaysHidden"):
                 sectionTitle = String(localized: "Show Always-Hidden Section")
                 iconName = "eye"
-            case (false, .alwaysHidden):
+            case (false, "alwaysHidden"):
                 sectionTitle = String(localized: "Hide Always-Hidden Section")
                 iconName = "eye.slash"
             default:
-                sectionTitle = String(localized: "\(section.isHidden ? "Show" : "Hide") \(name.displayString) Section")
+                sectionTitle = section.isHidden
+                    ? String(localized: "Show \(name.displayName)")
+                    : String(localized: "Hide \(name.displayName)")
                 iconName = section.isHidden ? "eye" : "eye.slash"
             }
             let item = NSMenuItem(
@@ -756,6 +749,20 @@ final class ControlItem {
         statusItem.showMenu(menu)
     }
 
+    /// Presents an arbitrary menu under the status item.
+    ///
+    /// A collapsed divider is thousands of points wide, so faking a click
+    /// on its button places the menu nowhere useful. Pop the menu at the
+    /// item's on screen frame when it has one, otherwise at the mouse.
+    func present(_ menu: NSMenu) {
+        // At the mouse, snapped to just under the menu bar.
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        let top = screen?.visibleFrame.maxY ?? mouse.y
+        let point = NSPoint(x: mouse.x - 8, y: min(mouse.y, top))
+        menu.popUp(positioning: nil, at: point, in: nil)
+    }
+
     /// Toggles the menu bar section associated with the given menu item.
     @objc private func toggleMenuBarSection(for menuItem: NSMenuItem) {
         guard let section = menuItem.representedObject as? MenuBarSection else {
@@ -840,28 +847,21 @@ enum ControlItemDefaults {
         // Visible and hidden control items should be added before
         // existing items in the status bar.
         if ControlItemDefaults[.preferredPosition, autosaveName] == nil {
-            switch controlItem.identifier {
-            case .visible:
+            if controlItem.identifier == .visible {
                 ControlItemDefaults[.preferredPosition, autosaveName] = 0
-            case .hidden:
+            } else if controlItem.identifier == .hidden {
                 ControlItemDefaults[.preferredPosition, autosaveName] = 1
-            case .alwaysHidden:
-                break
             }
         }
 
         // Always reset section divider positions to defaults
         // to prevent issues when users move them around
         if isSectionDivider(autosaveName: autosaveName) {
-            switch controlItem.identifier {
-            case .hidden:
+            if controlItem.identifier == .hidden {
                 ControlItemDefaults[.preferredPosition, autosaveName] = 1
-            case .alwaysHidden:
+            } else if controlItem.identifier == .alwaysHidden {
                 // Don't set a default position for always-hidden
                 // It will be positioned dynamically by the system
-                break
-            case .visible:
-                break
             }
         }
 

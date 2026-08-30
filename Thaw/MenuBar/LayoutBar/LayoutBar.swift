@@ -46,11 +46,29 @@ struct LayoutBar: View {
                     .strokeBorder(.quaternary)
             }
             .overlay {
-                if section == .visible, NSScreen.main?.hasNotch == true {
+                if section.isVisible, visibleItemsReachNotch {
                     NotchIndicatorOverlay()
                         .allowsHitTesting(false)
                 }
             }
+    }
+
+    /// Whether the visible items are wide enough to run into the notch.
+    /// Visible items sit against the right edge, so only their total width
+    /// against the space right of the notch matters.
+    private var visibleItemsReachNotch: Bool {
+        guard
+            let screen = NSScreen.main,
+            let notch = screen.frameOfNotch
+        else {
+            return false
+        }
+        let available = screen.frame.maxX - notch.maxX - MenuBarSection.notchGap
+        let visibleWidth = appState.itemManager.itemCache[.visible].reduce(0) { $0 + $1.bounds.width }
+        // A collapsed divider reports its pushing width, so count each
+        // divider that is in the menu bar at its normal size instead.
+        let controlWidth = CGFloat(appState.menuBarManager.sections.filter { $0.isEnabled }.count) * 22
+        return visibleWidth + controlWidth > available
     }
 
     @ViewBuilder

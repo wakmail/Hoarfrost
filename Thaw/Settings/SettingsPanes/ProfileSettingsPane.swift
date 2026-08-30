@@ -230,7 +230,7 @@ struct ProfileSettingsPane: View {
                 .foregroundStyle(.secondary)
                 .font(.callout)
             VStack(alignment: .leading, spacing: 2) {
-                Text("To switch profiles with Focus modes, add Thaw as a Focus Filter in System Settings \u{2192} Focus \u{2192} [Mode] \u{2192} Focus Filters.")
+                Text("To switch profiles with Focus modes, add Hoarfrost as a Focus Filter in System Settings \u{2192} Focus \u{2192} [Mode] \u{2192} Focus Filters.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Text("When a Focus mode deactivates, the display profile is automatically restored.")
@@ -397,7 +397,7 @@ struct ProfileSettingsPane: View {
         }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "Thaw Profiles.json"
+        panel.nameFieldStringValue = "Hoarfrost Profiles.json"
         panel.canCreateDirectories = true
 
         guard panel.runModal() == .OK, let url = panel.url else { return }

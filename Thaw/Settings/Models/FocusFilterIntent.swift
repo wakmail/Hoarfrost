@@ -65,7 +65,7 @@ struct ProfileEntityQuery: EntityQuery {
 struct ThawFocusFilter: SetFocusFilterIntent {
     static var title: LocalizedStringResource = "Set Menu Bar Profile"
     static var description: IntentDescription? = IntentDescription(
-        "Apply a Thaw menu bar profile when this Focus activates.",
+        "Apply a Hoarfrost menu bar profile when this Focus activates.",
         categoryName: "Profiles"
     )
 
@@ -87,7 +87,7 @@ struct ThawFocusFilter: SetFocusFilterIntent {
             // Focus deactivated — clear the stored profile and notify.
             UserDefaults.standard.removeObject(forKey: "FocusFilterRequestedProfileID")
             DistributedNotificationCenter.default().postNotificationName(
-                Notification.Name("com.stonerl.Thaw.focusFilterDeactivated"),
+                Notification.Name("dev.wakmail.Hoarfrost.focusFilterDeactivated"),
                 object: nil,
                 deliverImmediately: true
             )
@@ -99,7 +99,7 @@ struct ThawFocusFilter: SetFocusFilterIntent {
             forKey: "FocusFilterRequestedProfileID"
         )
         DistributedNotificationCenter.default().postNotificationName(
-            Notification.Name("com.stonerl.Thaw.focusFilterActivated"),
+            Notification.Name("dev.wakmail.Hoarfrost.focusFilterActivated"),
             object: nil,
             userInfo: ["profileID": profile.id],
             deliverImmediately: true

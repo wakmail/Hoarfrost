@@ -366,7 +366,7 @@ final class HIDEventManager: ObservableObject {
         // due to a cancelled Task or unexpected error. Force recovery.
         if !isEnabled, disableCount > 0, let lastStop = lastStopTimestamp {
             let elapsed = ContinuousClock.now - lastStop
-            if elapsed > .seconds(30) {
+            if elapsed > .seconds(5) {
                 Self.diagLog.error(
                     """
                     Event manager stuck in disabled state for \
@@ -437,46 +437,71 @@ extension HIDEventManager {
         }
 
         Task {
-            if isDoubleClick {
-                guard
-                    appState.settings.general.showOnClick,
-                    appState.settings.general.showOnDoubleClick
-                else {
-                    return
-                }
-                if let alwaysHiddenSection = appState.menuBarManager.section(withName: .alwaysHidden),
-                   alwaysHiddenSection.isEnabled
+            guard appState.settings.general.showOnClick else {
+                return
+            }
+
+            let behavior = appState.menuBarManager.sectionsConfiguration.emptyBarClickBehavior
+
+            if NSEvent.modifierFlags == .control {
+                handleSecondaryContextMenu(appState: appState, screen: screen)
+                return
+            }
+
+            if NSEvent.modifierFlags == .option {
+                if appState.settings.advanced.useOptionClickToShowAlwaysHiddenSection,
+                   let deepestSection = appState.menuBarManager.sections
+                    .filter({ !$0.name.isVisible && $0.isEnabled })
+                    .max(by: { $0.name.rank < $1.name.rank })
                 {
-                    alwaysHiddenSection.show()
-                    return
+                    deepestSection.show()
                 }
-            } else {
-                guard appState.settings.general.showOnClick else {
-                    return
-                }
+                return
+            }
 
-                if NSEvent.modifierFlags == .control {
-                    handleSecondaryContextMenu(appState: appState, screen: screen)
-                    return
-                }
-
-                if NSEvent.modifierFlags == .option {
-                    if appState.settings.advanced.useOptionClickToShowAlwaysHiddenSection,
-                       let alwaysHiddenSection = appState.menuBarManager.section(withName: .alwaysHidden),
-                       alwaysHiddenSection.isEnabled
+            switch behavior {
+            case .cycle:
+                // Every click is one step, so a fast double click is simply
+                // two steps and never fights a separate double click action.
+                appState.menuBarManager.cycleSections()
+            case .split:
+                if isDoubleClick { return }
+                let ordered = appState.menuBarManager.sections
+                    .filter { !$0.name.isVisible && $0.isEnabled }
+                    .sorted { $0.name.rank < $1.name.rank }
+                guard let first = ordered.first else { return }
+                let second = ordered.count > 1 ? ordered[1] : first
+                let target = mouseIsInLeftHalfOfEmptySpace(appState: appState, screen: screen) ? second : first
+                target.toggle()
+            case .toggleFirst:
+                if isDoubleClick {
+                    guard appState.settings.general.showOnDoubleClick else { return }
+                    if let deepestSection = appState.menuBarManager.sections
+                        .filter({ !$0.name.isVisible && $0.isEnabled })
+                        .max(by: { $0.name.rank < $1.name.rank })
                     {
-                        alwaysHiddenSection.show()
+                        deepestSection.show()
                     }
                     return
                 }
-
-                if let hiddenSection = appState.menuBarManager.section(withName: .hidden),
+                if let hiddenSection = appState.menuBarManager.sections.first(where: { $0.name.rank == 1 }),
                    hiddenSection.isEnabled
                 {
                     hiddenSection.toggle()
                 }
             }
         }
+    }
+
+    /// Whether the mouse sits in the left half of the empty menu bar space,
+    /// the stretch between the app menus and the leftmost visible item.
+    private func mouseIsInLeftHalfOfEmptySpace(appState: AppState, screen: NSScreen) -> Bool {
+        guard let mouse = MouseHelpers.locationAppKit else { return false }
+        let low = screen.getApplicationMenuFrame()?.maxX ?? screen.frame.minX
+        let visibleItems = appState.itemManager.itemCache[.visible].filter { $0.bounds.minX >= 0 }
+        let high = visibleItems.map(\.bounds.minX).min() ?? screen.frame.maxX
+        guard high > low else { return false }
+        return mouse.x < (low + high) / 2
     }
 
     // MARK: Handle Smart Rehide
@@ -739,9 +764,7 @@ extension HIDEventManager {
 
         // Only continue if we have a hidden section (we should).
         guard
-            let hiddenSection = appState.menuBarManager.section(
-                withName: .hidden
-            )
+            let hiddenSection = appState.menuBarManager.sections.first(where: { $0.name.rank == 1 })
         else {
             return
         }
@@ -853,9 +876,7 @@ extension HIDEventManager {
         guard
             appState.settings.general.showOnScroll,
             isMouseInsideEmptyMenuBarSpace(appState: appState, screen: screen),
-            let hiddenSection = appState.menuBarManager.section(
-                withName: .hidden
-            )
+            let hiddenSection = appState.menuBarManager.sections.first(where: { $0.name.rank == 1 })
         else {
             return
         }

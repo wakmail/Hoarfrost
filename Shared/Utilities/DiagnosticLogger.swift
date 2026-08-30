@@ -13,7 +13,7 @@ import OSLog
 /// when diagnostic logging is enabled. This allows users to capture detailed
 /// debug logs for troubleshooting without requiring a debug build.
 ///
-/// Log files are written to `~/Library/Logs/Thaw/`.
+/// Log files are written to `~/Library/Logs/Hoarfrost/`.
 final class DiagnosticLogger: @unchecked Sendable {
     /// The shared diagnostic logger instance.
     static let shared = DiagnosticLogger()
@@ -44,7 +44,7 @@ final class DiagnosticLogger: @unchecked Sendable {
         return home
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Logs", isDirectory: true)
-            .appendingPathComponent("Thaw", isDirectory: true)
+            .appendingPathComponent("Hoarfrost", isDirectory: true)
     }
 
     /// Returns whether any log files exist in the log directory.
@@ -83,7 +83,7 @@ final class DiagnosticLogger: @unchecked Sendable {
 
     /// Internal logger for DiagnosticLogger's own messages.
     private let osLog = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.stonerl.Thaw",
+        subsystem: Bundle.main.bundleIdentifier ?? "dev.wakmail.Hoarfrost",
         category: "DiagnosticLogger"
     )
 
@@ -105,7 +105,7 @@ final class DiagnosticLogger: @unchecked Sendable {
 
     /// Serial queue for file I/O.
     private let writeQueue = DispatchQueue(
-        label: "com.stonerl.Thaw.DiagnosticLogger.writeQueue",
+        label: "dev.wakmail.Hoarfrost.DiagnosticLogger.writeQueue",
         qos: .utility
     )
 
@@ -123,7 +123,7 @@ final class DiagnosticLogger: @unchecked Sendable {
             return
         }
 
-        let fileName = "thaw_\(fileNameFormatter.string(from: Date())).log"
+        let fileName = "hoarfrost_\(fileNameFormatter.string(from: Date())).log"
         let fileURL = dir.appendingPathComponent(fileName)
 
         FileManager.default.createFile(atPath: fileURL.path, contents: nil)
@@ -139,7 +139,7 @@ final class DiagnosticLogger: @unchecked Sendable {
             let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
             let header = """
             ========================================
-            Thaw Diagnostic Log
+            Hoarfrost Diagnostic Log
             Started: \(timestampFormatter.string(from: Date()))
             Version: \(version) (\(build))
             macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)
@@ -256,7 +256,7 @@ struct DiagLog {
 
     init(category: String) {
         self.osLogger = Logger(
-            subsystem: Bundle.main.bundleIdentifier ?? "com.stonerl.Thaw",
+            subsystem: Bundle.main.bundleIdentifier ?? "dev.wakmail.Hoarfrost",
             category: category
         )
         self.category = category

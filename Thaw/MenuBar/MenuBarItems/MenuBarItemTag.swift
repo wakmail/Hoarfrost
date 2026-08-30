@@ -53,6 +53,7 @@ struct MenuBarItemTag: Hashable, CustomStringConvertible {
     /// by this tag is a control item owned by Ice.
     var isControlItem: Bool {
         MenuBarItemTag.controlItems.contains(where: { $0.namespace == namespace && $0.title == title }) ||
+            (namespace == .thaw && title.hasPrefix("Thaw.ControlItem.Section.")) ||
             title.contains(".Spacer.")
     }
 
@@ -130,7 +131,7 @@ struct MenuBarItemTag: Hashable, CustomStringConvertible {
     }
 
     /// Creates a tag for the control item with the given identifier.
-    private init(controlItem identifier: ControlItem.Identifier) {
+    init(controlItem identifier: ControlItem.Identifier) {
         self.init(namespace: .thaw, title: identifier.rawValue, instanceIndex: 0)
     }
 }

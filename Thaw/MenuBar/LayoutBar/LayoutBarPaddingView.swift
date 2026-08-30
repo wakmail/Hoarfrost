@@ -270,14 +270,9 @@ final class LayoutBarPaddingView: NSView {
 
     private func liveFallbackDestinationForDraggedItem() async -> MenuBarItemManager.MoveDestination? {
         let items = await MenuBarItem.getMenuBarItems(option: .activeSpace)
-        return switch container.section {
-        case .visible:
-            nil
-        case .hidden:
-            items.first(matching: .hiddenControlItem).map { .leftOfItem($0) }
-        case .alwaysHidden:
-            items.first(matching: .alwaysHiddenControlItem).map { .leftOfItem($0) }
-        }
+        if container.section.isVisible { return nil }
+        let tag = MenuBarItemTag(controlItem: container.section.controlItemIdentifier)
+        return items.first(matching: tag).map { .leftOfItem($0) }
     }
 
     /// Ensures the dragged item remains in the intended section and its icon appears.

@@ -63,11 +63,9 @@ final class MenuBarManager: ObservableObject {
     let appearanceEditorPanel = MenuBarAppearanceEditorPanel()
 
     /// The managed sections in the menu bar.
-    let sections = [
-        MenuBarSection(name: .visible),
-        MenuBarSection(name: .hidden),
-        MenuBarSection(name: .alwaysHidden),
-    ]
+    @Published private(set) var sections: [MenuBarSection] = []
+
+    private(set) var sectionsConfiguration: SectionsConfiguration = .defaults
 
     /// A Boolean value that indicates whether at least one of the manager's
     /// sections is visible.
@@ -78,12 +76,279 @@ final class MenuBarManager: ObservableObject {
     /// Performs the initial setup of the menu bar manager.
     func performSetup(with appState: AppState) {
         self.appState = appState
+        if let data = Defaults.data(forKey: .sectionsConfiguration),
+           let configuration = try? JSONDecoder().decode(SectionsConfiguration.self, from: data),
+           !configuration.hiddenSections.isEmpty
+        {
+            sectionsConfiguration = configuration
+        }
+        let names = [MenuBarSection.Name.visible] + sectionsConfiguration.hiddenSections.enumerated().map { index, definition in
+            MenuBarSection.Name(id: definition.id, rank: index + 1, displayName: definition.displayName)
+        }
+        sections = names.map(MenuBarSection.init(name:))
+        for definition in sectionsConfiguration.hiddenSections {
+            sections.first { $0.name.id == definition.id }?.revealStyle = definition.revealStyle
+        }
+        publishConfiguredNames()
         configureCancellables()
         iceBarPanel.performSetup(with: appState)
         searchPanel.performSetup(with: appState)
         appearanceEditorPanel.performSetup(with: appState)
         for section in sections {
             section.performSetup(with: appState)
+        }
+    }
+
+    func saveSectionsConfiguration() {
+        guard let data = try? JSONEncoder().encode(sectionsConfiguration) else { return }
+        Defaults.set(data, forKey: .sectionsConfiguration)
+    }
+
+    /// Applies the section configuration carried by a profile.
+    func applySectionsConfiguration(_ configuration: SectionsConfiguration) async {
+        guard let appState else { return }
+        let retainedIDs = Set(configuration.hiddenSections.map(\.id))
+        for section in sections where !section.name.isVisible && !retainedIDs.contains(section.name.id) {
+            section.controlItem.removeFromMenuBar()
+        }
+
+        sectionsConfiguration = configuration
+        let names = [MenuBarSection.Name.visible] + configuration.hiddenSections.enumerated().map { index, definition in
+            MenuBarSection.Name(id: definition.id, rank: index + 1, displayName: definition.displayName)
+        }
+        var rebuilt = [MenuBarSection]()
+        for name in names {
+            let section = sections.first(where: { $0.name.id == name.id }) ?? MenuBarSection(name: name)
+            section.name = name
+            section.revealStyle = configuration.hiddenSections.first(where: { $0.id == name.id })?.revealStyle ?? .automatic
+            section.performSetup(with: appState)
+            rebuilt.append(section)
+        }
+        sections = rebuilt
+        publishConfiguredNames()
+        saveSectionsConfiguration()
+    }
+
+    /// Mirrors the current section list into `MenuBarSection.Name.configured`
+    /// so code that runs off the main actor sees the same sections.
+    private func publishConfiguredNames() {
+        MenuBarSection.Name.configured = sections.map(\.name)
+    }
+
+    /// Recomputes ranks from the configuration order and sorts sections.
+    private func applyRanks() {
+        for (index, definition) in sectionsConfiguration.hiddenSections.enumerated() {
+            sections.first { $0.name.id == definition.id }?.name.rank = index + 1
+        }
+        sections.sort { $0.name < $1.name }
+        publishConfiguredNames()
+    }
+
+    /// Adds a new hidden section at the deepest rank.
+    func addSection() {
+        guard let appState else { return }
+        let id = UUID().uuidString
+        let definition = SectionDefinition(
+            id: id,
+            displayName: "New Section",
+            controlItemAutosaveName: "Thaw.ControlItem.Section.\(id)",
+            hotkeyActionID: "ToggleSection.\(id)"
+        )
+        sectionsConfiguration.hiddenSections.append(definition)
+        let name = MenuBarSection.Name(id: id, rank: sectionsConfiguration.hiddenSections.count, displayName: definition.displayName)
+        let section = MenuBarSection(name: name)
+        sections.append(section)
+        section.performSetup(with: appState)
+        section.controlItem.addToMenuBar()
+        if let action = name.hotkeyAction {
+            appState.settings.hotkeys.addHotkey(for: action)
+        }
+        applyRanks()
+        saveSectionsConfiguration()
+        Task {
+            await appState.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
+        }
+    }
+
+    /// The rank of the dropdown currently on screen, if any.
+    var openDropdownRank: Int?
+
+    /// The most recently dismissed dropdown, for clicks that arrive just
+    /// after the menu closed itself.
+    var lastDropdownDismissal: (rank: Int, at: Date)?
+
+    /// Clicks collected while the cycle debounce window is open.
+    private var pendingCycleSteps = 0
+    private var cycleDebounceTask: Task<Void, Never>?
+
+    /// One click of the empty bar cycle. Clicks inside the double click
+    /// window accumulate and land as one jump, so a fast double click goes
+    /// straight to the second section without flashing the first.
+    func cycleSections() {
+        diagLog.debug("cycleSections: click received, pending=\(pendingCycleSteps + 1)")
+        guard sectionsConfiguration.cycleWaitsForMultiClicks else {
+            performCycle(steps: 1)
+            if let appState {
+                let names = sections.filter { !$0.name.isVisible }.map(\.name)
+                Task {
+                    await appState.imageCache.warmImages(sections: names)
+                }
+            }
+            return
+        }
+        pendingCycleSteps += 1
+        // Warm every hidden section immediately so whatever the jump lands
+        // on opens with its content already rendered.
+        if pendingCycleSteps == 1, let appState {
+            let names = sections.filter { !$0.name.isVisible }.map(\.name)
+            Task {
+                await appState.imageCache.warmImages(sections: names)
+            }
+        }
+        cycleDebounceTask?.cancel()
+        let window = min(NSEvent.doubleClickInterval, 0.12)
+        cycleDebounceTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(window))
+            guard !Task.isCancelled, let self else { return }
+            let steps = self.pendingCycleSteps
+            self.pendingCycleSteps = 0
+            self.performCycle(steps: steps)
+        }
+    }
+
+    /// Jumps the cycle forward by the given number of steps and shows only
+    /// the destination. The starting position comes from what is actually
+    /// open right now, so a dropdown that dismissed itself long ago does
+    /// not leave the cycle stuck mid sequence.
+    private func performCycle(steps: Int) {
+        let ordered = sections
+            .filter { !$0.name.isVisible && $0.isEnabled }
+            .sorted { $0.name.rank < $1.name.rank }
+        guard !ordered.isEmpty, steps > 0 else { return }
+
+        func position(ofRank rank: Int) -> Int? {
+            ordered.firstIndex { $0.name.rank == rank }.map { $0 + 1 }
+        }
+
+        let currentPosition: Int
+        if let rank = openDropdownRank, let pos = position(ofRank: rank) {
+            currentPosition = pos
+        } else if let dismissal = lastDropdownDismissal,
+                  Date.now.timeIntervalSince(dismissal.at) < 0.6,
+                  let pos = position(ofRank: dismissal.rank)
+        {
+            currentPosition = pos
+        } else if let current = iceBarPanel.currentSection, let pos = position(ofRank: current.rank) {
+            currentPosition = pos
+        } else if let index = ordered.lastIndex(where: { !$0.isHidden }) {
+            currentPosition = index + 1
+        } else {
+            currentPosition = 0
+        }
+        lastDropdownDismissal = nil
+        // A dropdown that is still fading out makes the next step look slow.
+        SectionDropdownMenu.dismissOpenMenuInstantly()
+
+        diagLog.debug("performCycle: steps=\(steps) from position \(currentPosition)")
+        let cycleLength = ordered.count + 1
+        let target = (currentPosition + steps) % cycleLength
+        if target == 0 {
+            for section in ordered where !section.isHidden {
+                section.hide()
+            }
+            iceBarPanel.close()
+        } else {
+            ordered[target - 1].show()
+        }
+    }
+
+    /// Sets whether the cycle waits for extra clicks before opening.
+    func setCycleWaitsForMultiClicks(_ waits: Bool) {
+        sectionsConfiguration.cycleWaitsForMultiClicks = waits
+        saveSectionsConfiguration()
+        objectWillChange.send()
+    }
+
+    /// Sets what clicking empty menu bar space does.
+    func setEmptyBarClickBehavior(_ behavior: EmptyBarClickBehavior) {
+        sectionsConfiguration.emptyBarClickBehavior = behavior
+        saveSectionsConfiguration()
+        objectWillChange.send()
+    }
+
+    /// Chooses whether dropdown rows show app icons or captured images.
+    func setDropdownShowsAppIcons(_ enabled: Bool) {
+        sectionsConfiguration.dropdownShowsAppIcons = enabled
+        saveSectionsConfiguration()
+        objectWillChange.send()
+    }
+
+    /// Chooses whether the app icon opens one combined dropdown.
+    func setIceIconOpensCombinedMenu(_ enabled: Bool) {
+        sectionsConfiguration.iceIconOpensCombinedMenu = enabled
+        saveSectionsConfiguration()
+        objectWillChange.send()
+    }
+
+    /// Changes how a section reveals its items.
+    func setRevealStyle(_ style: SectionRevealStyle, forSectionID id: String) {
+        guard let index = sectionsConfiguration.hiddenSections.firstIndex(where: { $0.id == id }) else { return }
+        sectionsConfiguration.hiddenSections[index].revealStyle = style
+        if let section = sections.first(where: { $0.name.id == id }) {
+            if !section.isHidden {
+                section.hide()
+            }
+            section.revealStyle = style
+        }
+        saveSectionsConfiguration()
+        objectWillChange.send()
+    }
+
+    func renameSection(id: String, to displayName: String) {
+        guard let index = sectionsConfiguration.hiddenSections.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        sectionsConfiguration.hiddenSections[index].displayName = trimmed
+        sections.first { $0.name.id == id }?.name.displayName = trimmed
+        publishConfiguredNames()
+        saveSectionsConfiguration()
+    }
+
+    func moveSection(id: String, offset: Int) {
+        guard let index = sectionsConfiguration.hiddenSections.firstIndex(where: { $0.id == id }) else { return }
+        let newIndex = index + offset
+        guard sectionsConfiguration.hiddenSections.indices.contains(newIndex) else { return }
+        sectionsConfiguration.hiddenSections.swapAt(index, newIndex)
+        applyRanks()
+        saveSectionsConfiguration()
+        // Dividers follow the new ranks and every section keeps its items.
+        Task {
+            await appState?.itemManager.applySectionReorder()
+        }
+    }
+
+    /// Removes a section after moving its items into the next shallower one.
+    /// The two default sections cannot be removed.
+    func removeSection(id: String) {
+        guard
+            let appState,
+            let section = sections.first(where: { $0.name.id == id }),
+            !section.name.isDefault,
+            let index = sectionsConfiguration.hiddenSections.firstIndex(where: { $0.id == id })
+        else {
+            return
+        }
+        Task {
+            await appState.itemManager.relocateItems(from: section.name)
+            section.controlItem.removeFromMenuBar()
+            if let action = section.name.hotkeyAction {
+                appState.settings.hotkeys.removeHotkey(for: action)
+            }
+            sectionsConfiguration.hiddenSections.remove(at: index)
+            sections.removeAll { $0.name.id == id }
+            applyRanks()
+            saveSectionsConfiguration()
+            await appState.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
         }
     }
 
@@ -232,15 +497,13 @@ final class MenuBarManager: ObservableObject {
                     return
                 }
 
-                // Check if hidden or alwaysHidden section is being shown
-                let hiddenSection = self.section(withName: .hidden)
-                let alwaysHiddenSection = self.section(withName: .alwaysHidden)
+                // The deepest section currently shown decides how far the
+                // menu bar expands. Shown means isHidden is false.
+                let deepestShown = self.sections
+                    .filter { !$0.name.isVisible && !$0.isHidden }
+                    .max { $0.name.rank < $1.name.rank }
 
-                // Use isHidden property - when section is shown, isHidden is false
-                let isShowingHiddenSection = hiddenSection.map { !$0.isHidden } ?? false
-                let isShowingAlwaysHiddenSection = alwaysHiddenSection.map { !$0.isHidden } ?? false
-
-                if isShowingHiddenSection || isShowingAlwaysHiddenSection {
+                if let deepestShown {
                     // Use the screen with the active menu bar
                     guard let screen = NSScreen.screenWithActiveMenuBar ?? NSScreen.main else {
                         return
@@ -264,25 +527,15 @@ final class MenuBarManager: ObservableObject {
                             abs(item.bounds.origin.y - menuBarY) < 50
                         }
 
-                        // Get the control items for this screen
-                        let hiddenControlItem = screenItems.first { $0.tag == .hiddenControlItem }
-                        let alwaysHiddenControlItem = screenItems.first { $0.tag == .alwaysHiddenControlItem }
-
-                        // Approximate hidden items width from control item positions.
-
-                        // Get control item bounds and hidden items width
+                        // The shown section's divider on this screen, and the
+                        // width of the items it reveals.
                         var controlBounds: CGRect = .zero
                         var hiddenItemsWidth: CGFloat = 0
-
-                        if isShowingAlwaysHiddenSection, let ahControl = alwaysHiddenControlItem {
-                            controlBounds = ahControl.bounds
+                        let dividerTag = MenuBarItemTag(controlItem: deepestShown.name.controlItemIdentifier)
+                        if let control = screenItems.first(where: { $0.tag == dividerTag }) {
+                            controlBounds = control.bounds
                             if let appState = self.appState {
-                                hiddenItemsWidth = appState.itemManager.itemCache[.alwaysHidden].reduce(0) { $0 + $1.bounds.width }
-                            }
-                        } else if isShowingHiddenSection, let hControl = hiddenControlItem {
-                            controlBounds = hControl.bounds
-                            if let appState = self.appState {
-                                hiddenItemsWidth = appState.itemManager.itemCache[.hidden].reduce(0) { $0 + $1.bounds.width }
+                                hiddenItemsWidth = appState.itemManager.itemCache[deepestShown.name].reduce(0) { $0 + $1.bounds.width }
                             }
                         }
 
@@ -387,8 +640,23 @@ final class MenuBarManager: ObservableObject {
     }
 
     /// Shows the secondary context menu.
+    /// Builders kept alive while the secondary context menu is open.
+    private var contextMenuBuilders: [SectionDropdownMenu] = []
+
     func showSecondaryContextMenu(at point: CGPoint) {
         let menu = NSMenu(title: "\(Constants.displayName)")
+
+        // Every section first, as a submenu of its items, so a menu bar with
+        // no chevrons and no icon still reaches each section by mouse.
+        if let appState {
+            let combined = SectionDropdownMenu.makeCombinedMenu(appState: appState)
+            contextMenuBuilders = combined.builders
+            for item in combined.menu.items {
+                combined.menu.removeItem(item)
+                menu.addItem(item)
+            }
+            menu.addItem(.separator())
+        }
 
         let editAppearanceItem = NSMenuItem(
             title: String(localized: "Edit Menu Bar Appearance…"),

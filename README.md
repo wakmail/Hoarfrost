@@ -25,13 +25,13 @@ Use one control icon with every group inside it, or one icon per group, or mix. 
 
 ## Status
 
-Early. Right now this is Thaw 1.3.0 beta 1 building on Xcode 16, plus a plan. See [TODO.md](TODO.md) for where it is going. Nothing is released yet.
+Working, early. The core is in: any number of sections, per section reveal styles including the dropdown, the combined single icon mode, click cycling on empty menu bar space, a right click menu of every section, faster click delivery, and settings import from Thaw and Ice. Tested by hand on macOS 15. No packaged release yet; build it yourself for now. See [TODO.md](TODO.md) for what is next.
 
 Why Thaw 1.3 and not 2.0: Thaw 2.0 requires macOS 26. Hoarfrost keeps macOS 14 and 15 working alongside 26, so it starts from the last release that supported them and pulls forward what it can from 2.0.
 
 ## Building
 
-Open `Thaw.xcodeproj` in Xcode 16.4 or newer and build the `Thaw` scheme. The project name and bundle identifiers will change to Hoarfrost once the core work lands, so upstream changes stay easy to merge until then.
+Open `Thaw.xcodeproj` in Xcode 16.4 or newer and build the `Thaw` scheme. The built application is `Hoarfrost.app`.
 
 ## License
 

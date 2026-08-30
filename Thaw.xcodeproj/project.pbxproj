@@ -39,7 +39,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		7166832A2A767E6A006ABF84 /* Thaw.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Thaw.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7166832A2A767E6A006ABF84 /* Hoarfrost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Hoarfrost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7188A6832E27F9ED008F131D /* MenuBarItemService.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = MenuBarItemService.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -117,7 +117,7 @@
 		7166832B2A767E6A006ABF84 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				7166832A2A767E6A006ABF84 /* Thaw.app */,
+				7166832A2A767E6A006ABF84 /* Hoarfrost.app */,
 				7188A6832E27F9ED008F131D /* MenuBarItemService.xpc */,
 			);
 			name = Products;
@@ -154,7 +154,7 @@
 				7127A9FE2C4886D100D99DEF /* IfritStatic */,
 			);
 			productName = Ice;
-			productReference = 7166832A2A767E6A006ABF84 /* Thaw.app */;
+			productReference = 7166832A2A767E6A006ABF84 /* Hoarfrost.app */;
 			productType = "com.apple.product-type.application";
 		};
 		7188A6822E27F9ED008F131D /* MenuBarItemService */ = {
@@ -454,8 +454,8 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = "1.3.0-beta.1";
-				PRODUCT_BUNDLE_IDENTIFIER = com.stonerl.Thaw;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.wakmail.Hoarfrost;
+				PRODUCT_NAME = Hoarfrost;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -489,8 +489,8 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = "1.3.0-beta.1";
-				PRODUCT_BUNDLE_IDENTIFIER = com.stonerl.Thaw;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.wakmail.Hoarfrost;
+				PRODUCT_NAME = Hoarfrost;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -511,7 +511,7 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Toni Förster\nCopyright © 2023–2025 Jordan Baird (Ice) ";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = "1.3.0-beta.1";
-				PRODUCT_BUNDLE_IDENTIFIER = com.stonerl.Thaw.MenuBarItemService;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.wakmail.Hoarfrost.MenuBarItemService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SKIP_INSTALL = YES;
@@ -539,7 +539,7 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Toni Förster\nCopyright © 2023–2025 Jordan Baird (Ice) ";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = "1.3.0-beta.1";
-				PRODUCT_BUNDLE_IDENTIFIER = com.stonerl.Thaw.MenuBarItemService;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.wakmail.Hoarfrost.MenuBarItemService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SKIP_INSTALL = YES;
