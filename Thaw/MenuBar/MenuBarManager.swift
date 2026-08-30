@@ -208,9 +208,9 @@ final class MenuBarManager: ObservableObject {
         sectionsConfiguration.hiddenSections.swapAt(index, newIndex)
         applyRanks()
         saveSectionsConfiguration()
-        // Divider order in the menu bar must follow the new ranks.
+        // Dividers follow the new ranks and every section keeps its items.
         Task {
-            await appState?.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
+            await appState?.itemManager.applySectionReorder()
         }
     }
 

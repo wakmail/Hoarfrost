@@ -5052,6 +5052,50 @@ extension MenuBarItemManager {
         return .leftOfItem(controlItems.deepestDivider(upTo: rank))
     }
 
+    /// Applies a changed section order: reorders the dividers to match the
+    /// new ranks, then moves every item back into the section it belonged
+    /// to before the change, so sections carry their items with them.
+    func applySectionReorder() async {
+        // Snapshot item membership by section id before anything moves.
+        let membership: [String: [MenuBarItem]] = Dictionary(
+            uniqueKeysWithValues: itemCache.sections.map { ($0.id, itemCache[$0]) }
+        )
+        let wasRestoring = isRestoringItemOrder
+        isRestoringItemOrder = true
+        defer { isRestoringItemOrder = wasRestoring }
+
+        var items = await MenuBarItem.getMenuBarItems(option: .activeSpace)
+        guard let controlItems = ControlItemSet(items: &items) else {
+            MenuBarItemManager.diagLog.error("applySectionReorder: control items not found")
+            return
+        }
+        await enforceControlItemOrder(controlItems: controlItems)
+
+        // Re-read positions now that the dividers are in their new order.
+        var refreshed = await MenuBarItem.getMenuBarItems(option: .activeSpace)
+        guard let refreshedControls = ControlItemSet(items: &refreshed) else { return }
+        let dividerBounds = refreshedControls.dividers.map(\.bounds)
+        func currentRank(of item: MenuBarItem) -> Int {
+            dividerBounds.filter { $0.minX >= item.bounds.maxX }.count
+        }
+
+        for section in MenuBarSection.Name.allCases where !section.isVisible {
+            guard let members = membership[section.id] else { continue }
+            // Left to right keeps the original order when each lands just
+            // left of the section's divider.
+            for member in members.sorted(by: { $0.bounds.minX < $1.bounds.minX }) {
+                guard let live = refreshed.first(where: { $0.windowID == member.windowID }) else { continue }
+                guard currentRank(of: live) != section.rank else { continue }
+                do {
+                    try await move(item: live, to: rightmostDestination(in: section.rank, controlItems: refreshedControls), skipInputPause: true)
+                } catch {
+                    MenuBarItemManager.diagLog.error("applySectionReorder: failed to move \(live.logString): \(error)")
+                }
+            }
+        }
+        await cacheItemsRegardless(skipRecentMoveCheck: true)
+    }
+
     /// Moves every item currently cached in `section` into the section one
     /// rank shallower. Used before a section is removed.
     func relocateItems(from section: MenuBarSection.Name) async {
