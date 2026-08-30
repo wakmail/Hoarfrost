@@ -623,7 +623,7 @@ final class MenuBarItemManager: ObservableObject {
         // MAX of the previous deadline and the newly computed one. This prevents a
         // second performSetup() call from resetting systemUptime to a higher value
         // (> 60 s) and silently truncating the 30-second login settling window.
-        let preferredDelay: Duration = ProcessInfo.processInfo.systemUptime < 60 ? .seconds(30) : .seconds(5)
+        let preferredDelay: Duration = ProcessInfo.processInfo.systemUptime < 60 ? .seconds(30) : .milliseconds(1500)
         let newDeadline = ContinuousClock.now.advanced(by: preferredDelay)
         let deadline = max(settlingDeadline ?? newDeadline, newDeadline)
         settlingDeadline = deadline
@@ -1177,7 +1177,11 @@ extension MenuBarItemManager {
                 await MainActor.run {
                     self.areControlItemsMissing = true
                 }
-                itemCache = ItemCache(displayID: nil)
+                // Keep the previous cache. The dividers are usually only
+                // missing for a moment (macOS reshuffling items after a
+                // spacing change or an app relaunch), and wiping the cache
+                // makes the layout bar and bars show a loading state every
+                // time it happens.
                 return
             }
 
