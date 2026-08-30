@@ -56,9 +56,11 @@ final class SectionDropdownMenu: NSObject {
             menu.addItem(row)
         }
 
-        // Refresh images in the background so the next opening is current.
+        // Refresh every hidden section in the background so whatever opens
+        // next, dropdown or bar, has current images waiting.
+        let names = appState.menuBarManager.sections.filter { !$0.name.isVisible }.map(\.name)
         Task {
-            await appState.imageCache.updateCache(sections: [sectionName])
+            await appState.imageCache.updateCache(sections: names)
         }
         return menu
     }

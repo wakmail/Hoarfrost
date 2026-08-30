@@ -365,7 +365,7 @@ private struct IceBarContentView: View {
         .task(id: section) {
             cacheGracePeriodActive = true
             loadingTimedOut = false
-            try? await Task.sleep(for: .milliseconds(600))
+            try? await Task.sleep(for: .milliseconds(300))
             cacheGracePeriodActive = false
             try? await Task.sleep(for: .seconds(2))
             loadingTimedOut = true

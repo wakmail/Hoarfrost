@@ -190,6 +190,14 @@ final class MenuBarManager: ObservableObject {
         if let next {
             cycleRank = next.name.rank
             next.show()
+            // Warm the images of every hidden section so the next step of
+            // the cycle opens with its content already rendered.
+            if let appState {
+                let names = sections.filter { !$0.name.isVisible }.map(\.name)
+                Task {
+                    await appState.imageCache.updateCache(sections: names)
+                }
+            }
         } else {
             cycleRank = nil
             for section in ordered where !section.isHidden {
