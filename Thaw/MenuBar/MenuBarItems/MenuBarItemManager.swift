@@ -1315,6 +1315,13 @@ extension MenuBarItemManager {
             // can run for future caches.
             isRestoringItemOrder = false
 
+            // The flag was still up while uncheckedCacheItems ran, so the
+            // save inside it was skipped on every one of these passes. Take
+            // the opportunity now that no restore happened.
+            if !isResettingLayout, !isInStartupSettling {
+                saveSectionOrder(from: itemCache)
+            }
+
             // Detect late-arriving items that belong to the active profile.
             // If new items appeared since the last profile apply/re-sort,
             // schedule a debounced re-sort to place them correctly.
