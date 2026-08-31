@@ -1449,7 +1449,10 @@ extension MenuBarItemManager {
     /// Waits asynchronously for the user to pause input.
     private nonisolated func waitForUserToPauseInput() async throws {
         let waitTask = Task {
-            while true {
+            // Cap the courtesy wait. Without a deadline, continuous mouse
+            // movement stalled clicks indefinitely, which read as freezes.
+            let deadline = ContinuousClock.now.advanced(by: .milliseconds(750))
+            while ContinuousClock.now < deadline {
                 try Task.checkCancellation()
                 if hasUserPausedInput(for: .milliseconds(50)) {
                     break

@@ -121,6 +121,34 @@ Manual test plan (quit Ice first, then run the Thaw scheme):
   the floor on dropdown latency; going lower means eating the mouse up in an
   event tap, which is recorded here as a possible later experiment.
 
+### Rehide methods, compared (for the record)
+- Ice: a plain countdown. Rehides after a set delay no matter what.
+- Thaw 1.x: countdown plus coarse hints (app switch, a global any menu
+  open check that apps like Droppy confuse forever).
+- Thaw 2.x: tracks the one exact window the click opened and rehides when
+  that window closes. Precise, never waits on unrelated windows, but
+  rehides too early when the flow opens a second window (menu closes,
+  camera window opens) and the app only runs on macOS 26.
+- Hoarfrost today: watches every window of the clicked item's process that
+  appeared after the click, rehides 0.35 s after the last one closes, with
+  a 15 s timer as fallback. Handles Droppy, but misses windows opened by a
+  sibling helper process (Vorssaint's camera), which then get yanked.
+- Next step chosen: widen the match from exact process to the app's whole
+  family (same bundle prefix and related helpers). Waiting too long is
+  capped by the fallback timer; rehiding too early breaks things, so the
+  broad match is the right tradeoff.
+
+### Freezes seen in the field (partly fixed)
+- Clicks could stall indefinitely because the courtesy wait for input
+  silence had no deadline; continuous mouse movement blocked it. Now
+  capped at 750 ms.
+- The move lock times out after 5 s and force releases when a slow or
+  failing move holds it while another operation waits; each occurrence is
+  a 5 s freeze and the force release lets two operations race. Seen five
+  times in one evening. Proper fix is queueing moves instead of timing
+  out, or shortening retry ladders so a failing item cannot hold the lock
+  for seconds.
+
 ### 3. Speed (first piece done)
 - Backported Thaw 2.0's accessibility click delivery (`AXItemActivator`,
   `ClickReactionVerifier`, flag `UseAXClickDelivery`, default on). Left
