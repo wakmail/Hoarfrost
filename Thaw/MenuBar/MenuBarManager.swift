@@ -172,8 +172,10 @@ final class MenuBarManager: ObservableObject {
         }
         applyRanks()
         saveSectionsConfiguration()
+        // Inserting above Always Hidden re ranks it, so items must be
+        // carried along exactly as they are for reordering.
         Task {
-            await appState.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
+            await appState.itemManager.applySectionReorder()
         }
     }
 
