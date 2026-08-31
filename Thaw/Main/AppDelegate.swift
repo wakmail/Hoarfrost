@@ -94,8 +94,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    /// Writes Ice's divider positions to match ours on quit, so if Ice is
+    /// launched next its Hidden and Always Hidden fences land exactly where
+    /// Hoarfrost's were and every item stays in the equivalent bucket.
+    /// Skipped while Ice is running, since it would overwrite the values.
+    private func syncIceDividersToOurs() {
+        let iceBundleID = "com.jordanbaird.Ice"
+        guard NSRunningApplication.runningApplications(withBundleIdentifier: iceBundleID).isEmpty else { return }
+        guard
+            let ice = UserDefaults(suiteName: iceBundleID),
+            ice.persistentDomain(forName: iceBundleID)?.isEmpty == false
+        else {
+            return
+        }
+        let ours = UserDefaults.standard
+        if let hidden = ours.object(forKey: "NSStatusItem Preferred Position Thaw.ControlItem.Hidden") {
+            ice.set(hidden, forKey: "NSStatusItem Preferred Position HItem")
+        }
+        if let always = ours.object(forKey: "NSStatusItem Preferred Position Thaw.ControlItem.AlwaysHidden") {
+            ice.set(always, forKey: "NSStatusItem Preferred Position AHItem")
+        }
+        appState.diagLog.info("Synced Ice divider positions to Hoarfrost's for handoff")
+    }
+
     func applicationWillTerminate(_: Notification) {
         appState.diagLog.info("Application will terminate - checking for blocked items to restore")
+
+        syncIceDividersToOurs()
 
         // Create a semaphore to wait for the async restore operation
         let semaphore = DispatchSemaphore(value: 0)
