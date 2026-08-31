@@ -142,12 +142,12 @@ Manual test plan (quit Ice first, then run the Thaw scheme):
 - Clicks could stall indefinitely because the courtesy wait for input
   silence had no deadline; continuous mouse movement blocked it. Now
   capped at 750 ms.
-- The move lock times out after 5 s and force releases when a slow or
-  failing move holds it while another operation waits; each occurrence is
-  a 5 s freeze and the force release lets two operations race. Seen five
-  times in one evening. Proper fix is queueing moves instead of timing
-  out, or shortening retry ladders so a failing item cannot hold the lock
-  for seconds.
+- Fixed: the move lock's timeout handler used to inject a signal it did
+  not own, letting two operations move items at once and cascade into
+  stalls. Waits are now patient (20 s) and a timeout never touches the
+  lock. Residual: an operation queued behind a failing item's retry
+  ladder still runs seconds late; shortening those ladders is the next
+  refinement.
 
 ### 3. Speed (first piece done)
 - Backported Thaw 2.0's accessibility click delivery (`AXItemActivator`,
