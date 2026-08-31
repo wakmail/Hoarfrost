@@ -2795,6 +2795,25 @@ extension MenuBarItemManager {
     private func rehideWhenMenuCloses(for item: MenuBarItem, windowsBefore: Set<CGWindowID>) {
         menuCloseWatchTask?.cancel()
         let pids = Set([item.ownerPID, item.sourcePID].compactMap { $0 })
+        // Big apps open follow up windows from helper processes (a menu
+        // choice opening a camera window, say), so match by app family as
+        // well as by process. Apple's own namespace is too broad to family
+        // match, so it stays process only.
+        let bundleID = item.sourceApplication?.bundleIdentifier
+            ?? item.owningApplication?.bundleIdentifier
+        let familyPrefix: String? = bundleID.flatMap { id in
+            let parts = id.split(separator: ".")
+            guard parts.count >= 2 else { return nil }
+            let prefix = parts.prefix(2).joined(separator: ".")
+            return prefix == "com.apple" ? nil : prefix
+        }
+        func windowBelongsToApp(_ window: WindowInfo) -> Bool {
+            if pids.contains(window.ownerPID) { return true }
+            guard let windowBundle = window.owningApplication?.bundleIdentifier else { return false }
+            if let bundleID, windowBundle == bundleID { return true }
+            if let familyPrefix, windowBundle.hasPrefix(familyPrefix + ".") || windowBundle == familyPrefix { return true }
+            return false
+        }
         menuCloseWatchTask = Task { [weak self] in
             guard let self else { return }
             var opened = Set<CGWindowID>()
@@ -2803,7 +2822,7 @@ extension MenuBarItemManager {
                 try? await Task.sleep(for: .milliseconds(80))
                 if Task.isCancelled { return }
                 let newIDs = Bridging.getWindowList(option: .onScreen).filter { !windowsBefore.contains($0) }
-                let owned = WindowInfo.createWindows(from: newIDs).filter { pids.contains($0.ownerPID) }
+                let owned = WindowInfo.createWindows(from: newIDs).filter { windowBelongsToApp($0) }
                 opened = Set(owned.map(\.windowID))
             }
             guard !opened.isEmpty else { return }
@@ -2816,7 +2835,7 @@ extension MenuBarItemManager {
                 try? await Task.sleep(for: .milliseconds(80))
                 if Task.isCancelled { return }
                 let newIDs = Bridging.getWindowList(option: .onScreen).filter { !windowsBefore.contains($0) }
-                let ownedOnScreen = WindowInfo.createWindows(from: newIDs).contains { pids.contains($0.ownerPID) }
+                let ownedOnScreen = WindowInfo.createWindows(from: newIDs).contains { windowBelongsToApp($0) }
                 if ownedOnScreen {
                     quietSince = nil
                     continue
@@ -3242,7 +3261,7 @@ extension MenuBarItemManager {
             }
 
             do {
-                try await move(item: item, to: destination, on: context.displayID, skipInputPause: true)
+                try await move(item: item, to: destination, on: context.displayID, skipInputPause: true, maxMoveAttempts: 3)
                 // Successfully rehidden — remove the pending relocation entry.
                 let tagIdentifier = context.tag.tagIdentifier
                 pendingRelocations.removeValue(forKey: tagIdentifier)
@@ -3612,7 +3631,7 @@ extension MenuBarItemManager {
             )
 
             do {
-                try await move(item: item, to: destination, skipInputPause: true)
+                try await move(item: item, to: destination, skipInputPause: true, maxMoveAttempts: 2)
                 pendingRelocations.removeValue(forKey: tagIdentifier)
                 pendingReturnDestinations.removeValue(forKey: tagIdentifier)
                 didRelocate = true
@@ -3773,7 +3792,7 @@ extension MenuBarItemManager {
                         "Relocating unsaved item \(item.logString) from \(currentSection.logString) to visible"
                     )
                     do {
-                        try await move(item: item, to: .rightOfItem(visibleCtrl), skipInputPause: true)
+                        try await move(item: item, to: .rightOfItem(visibleCtrl), skipInputPause: true, maxMoveAttempts: 2)
                     } catch {
                         MenuBarItemManager.diagLog.error("Failed to relocate unsaved item \(item.logString): \(error)")
                     }
@@ -3794,7 +3813,7 @@ extension MenuBarItemManager {
 
             do {
                 MenuBarItemManager.diagLog.debug("Starting move for restore: item=\(item.logString), destination=\(destination.logString)")
-                try await move(item: item, to: destination, skipInputPause: true)
+                try await move(item: item, to: destination, skipInputPause: true, maxMoveAttempts: 2)
                 MenuBarItemManager.diagLog.debug("Move completed successfully for restore")
             } catch let error as EventError {
                 MenuBarItemManager.diagLog.error(
@@ -3952,7 +3971,7 @@ extension MenuBarItemManager {
             }
 
             do {
-                try await move(item: item, to: destination, skipInputPause: true)
+                try await move(item: item, to: destination, skipInputPause: true, maxMoveAttempts: 2)
                 didMove = true
             } catch {
                 MenuBarItemManager.diagLog.error(
@@ -4920,7 +4939,7 @@ extension MenuBarItemManager {
                 MenuBarItemManager.diagLog.debug("Profile layout (full sort): \(uid) → .leftOfItem(CC)")
 
                 do {
-                    try await move(item: item, to: dest, skipInputPause: true)
+                    try await move(item: item, to: dest, skipInputPause: true, maxMoveAttempts: 2)
                     movedCount += 1
                     try? await Task.sleep(for: .milliseconds(200))
                 } catch {
@@ -5037,7 +5056,7 @@ extension MenuBarItemManager {
                     if let dest {
                         MenuBarItemManager.diagLog.debug("Profile layout: moving AH_ctrl → \(dest.logString)")
                         do {
-                            try await move(item: ahItem, to: dest, skipInputPause: true)
+                            try await move(item: ahItem, to: dest, skipInputPause: true, maxMoveAttempts: 2)
                             movedCount += 1
                             try? await Task.sleep(for: .milliseconds(200))
                         } catch {
