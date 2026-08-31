@@ -4,6 +4,7 @@
 //
 //  Copyright (Ice) © 2023–2025 Jordan Baird
 //  Copyright (Thaw) © 2026 Toni Förster
+//  Copyright (Hoarfrost) © 2026 wakmail
 //  Licensed under the GNU GPLv3
 
 import Cocoa
@@ -3610,6 +3611,12 @@ extension MenuBarItemManager {
         MenuBarItemManager.diagLog.debug("restoreItemsToSavedSections: waiting for menu bar to settle...")
         try? await Task.sleep(for: .milliseconds(500))
 
+        let usePlannedRestore = (Defaults.object(forKey: .usePlannedRestore) as? Bool)
+            ?? Defaults.DefaultValue.usePlannedRestore
+        if usePlannedRestore {
+            return await restoreWithPlanner(items: items, controlItems: controlItems)
+        }
+
         // Build lookups from savedSectionOrder:
         // 1. baseIdentifier (namespace:title) → saved section (handles instanceIndex changes)
         // 2. namespace string → saved section (fallback for dynamic-title apps only)
@@ -3759,6 +3766,118 @@ extension MenuBarItemManager {
 
         MenuBarItemManager.diagLog.debug("restoreItemsToSavedSections: no items needed restoring (checked \(items.count) items)")
         return false
+    }
+
+    /// Builds and executes one pure plan for saved section membership and order.
+    private func restoreWithPlanner(
+        items: [MenuBarItem],
+        controlItems: ControlItemSet
+    ) async -> Bool {
+        let sections = MenuBarSection.Name.allCases
+        var context = CacheContext(
+            controlItems: controlItems,
+            displayID: Bridging.getActiveMenuBarDisplayID()
+        )
+
+        let candidates = items.filter {
+            !$0.isControlItem && $0.isMovable && $0.canBeHidden && $0.tag.instanceIndex == 0
+        }
+        var namespaceCounts = [String: Int]()
+        for item in candidates {
+            namespaceCounts[item.tag.namespace.description, default: 0] += 1
+        }
+
+        let movableItems = candidates.filter { candidate in
+            (namespaceCounts[candidate.tag.namespace.description] ?? 0) == 1
+                && !temporarilyShownItemContexts.contains { context in
+                    context.tag.tagIdentifier == candidate.tag.tagIdentifier
+                }
+        }
+        let eligibleItems = movableItems.filter { context.isValidForCaching($0) }
+        let itemByIdentifier = Dictionary(uniqueKeysWithValues: eligibleItems.map { ($0.uniqueIdentifier, $0) })
+
+        func baseIdentifier(_ identifier: String) -> String {
+            identifier.split(separator: ":", maxSplits: 2).prefix(2).joined(separator: ":")
+        }
+
+        var currentBySection = [String: [LayoutPlanner.CurrentItem]]()
+        for item in eligibleItems {
+            guard let section = context.findSection(for: item) else { continue }
+            currentBySection[section.id, default: []].append(
+                LayoutPlanner.CurrentItem(identifier: item.uniqueIdentifier, sectionID: section.id)
+            )
+        }
+
+        var plannerSections = [LayoutPlanner.Section]()
+        var allCurrentItems = [LayoutPlanner.CurrentItem]()
+        for section in sections {
+            let sectionItems = currentBySection[section.id] ?? []
+            allCurrentItems.append(contentsOf: sectionItems)
+            if let divider = controlItems.divider(rank: section.rank + 1) {
+                allCurrentItems.append(
+                    LayoutPlanner.CurrentItem(identifier: divider.uniqueIdentifier, sectionID: section.id)
+                )
+            }
+
+            let saved = savedSectionOrder[sectionKey(for: section)] ?? []
+            let resolvedSaved = saved.compactMap { savedID -> String? in
+                if itemByIdentifier[savedID] != nil { return savedID }
+                let savedBase = baseIdentifier(savedID)
+                return eligibleItems.first(where: { baseIdentifier($0.uniqueIdentifier) == savedBase })?.uniqueIdentifier
+            }
+            plannerSections.append(
+                LayoutPlanner.Section(
+                    id: section.id,
+                    savedIdentifiers: resolvedSaved,
+                    dividerIdentifier: controlItems.divider(rank: section.rank + 1)?.uniqueIdentifier
+                )
+            )
+        }
+
+        let plan = LayoutPlanner.plan(currentItems: allCurrentItems, sections: plannerSections)
+        MenuBarItemManager.diagLog.debug("restoreWithPlanner: executing plan with \(plan.count) moves")
+        var didMove = false
+        let sectionByItemIdentifier = Dictionary(
+            uniqueKeysWithValues: plannerSections.flatMap { section in
+                section.savedIdentifiers.map { ($0, section.id) }
+            }
+        )
+
+        for plannedMove in plan {
+            guard let item = itemByIdentifier[plannedMove.itemIdentifier] else { continue }
+            let destination: MoveDestination
+            switch plannedMove.destination {
+            case let .leftOf(identifier):
+                if let anchor = items.first(where: { $0.uniqueIdentifier == identifier && $0.isMovable }) {
+                    destination = .leftOfItem(anchor)
+                } else {
+                    guard let sectionID = sectionByItemIdentifier[plannedMove.itemIdentifier],
+                          let section = sections.first(where: { $0.id == sectionID }) else { continue }
+                    destination = leftmostDestination(in: section.rank, controlItems: controlItems)
+                }
+            case let .rightOf(identifier):
+                if let anchor = items.first(where: { $0.uniqueIdentifier == identifier && $0.isMovable }) {
+                    destination = .rightOfItem(anchor)
+                } else {
+                    guard let sectionID = sectionByItemIdentifier[plannedMove.itemIdentifier],
+                          let section = sections.first(where: { $0.id == sectionID }) else { continue }
+                    destination = leftmostDestination(in: section.rank, controlItems: controlItems)
+                }
+            case let .sectionBoundary(sectionID):
+                guard let section = sections.first(where: { $0.id == sectionID }) else { continue }
+                destination = leftmostDestination(in: section.rank, controlItems: controlItems)
+            }
+
+            do {
+                try await move(item: item, to: destination, skipInputPause: true)
+                didMove = true
+            } catch {
+                MenuBarItemManager.diagLog.error(
+                    "restoreWithPlanner: failed to move \(item.logString): \(error)"
+                )
+            }
+        }
+        return didMove
     }
 
     /// Only triggers when the set of window IDs has changed (items were
