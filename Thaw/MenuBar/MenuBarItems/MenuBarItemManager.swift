@@ -2823,7 +2823,7 @@ extension MenuBarItemManager {
                 }
                 let since = quietSince ?? ContinuousClock.now
                 quietSince = since
-                if ContinuousClock.now - since >= .milliseconds(200) {
+                if ContinuousClock.now - since >= .milliseconds(120) {
                     break
                 }
             }
