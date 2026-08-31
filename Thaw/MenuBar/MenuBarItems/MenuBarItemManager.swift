@@ -2116,10 +2116,14 @@ extension MenuBarItemManager {
         warpCursorAfter: Bool = true
     ) async throws {
         do {
-            try await eventSemaphore.wait(timeout: .seconds(5))
+            // Patient: a click or move queued behind a multi item rehide can
+            // legitimately wait several seconds. Running late beats failing.
+            try await eventSemaphore.wait(timeout: .seconds(20))
         } catch is SimpleSemaphore.TimeoutError {
-            MenuBarItemManager.diagLog.error("eventSemaphore timed out in postMoveEvents, forcing signal and retrying")
-            await eventSemaphore.signal()
+            // Never signal here: this task does not hold the semaphore, and
+            // injecting a permit lets two operations move items at once,
+            // which is where the stall cascades came from.
+            MenuBarItemManager.diagLog.error("eventSemaphore timed out in postMoveEvents; giving up without touching the lock")
             throw EventError.cannotComplete
         }
         defer { Task.detached { [eventSemaphore] in await eventSemaphore.signal() } }
@@ -2403,10 +2407,10 @@ extension MenuBarItemManager {
     private func postClickEvents(item: MenuBarItem, mouseButton: CGMouseButton) async throws {
         // Try to acquire semaphore with timeout
         do {
-            try await eventSemaphore.wait(timeout: .seconds(5))
+            try await eventSemaphore.wait(timeout: .seconds(20))
         } catch is SimpleSemaphore.TimeoutError {
-            MenuBarItemManager.diagLog.error("eventSemaphore timed out in postClickEvents for \(item.logString), forcing signal and retrying")
-            await eventSemaphore.signal()
+            // See postMoveEvents: never inject a signal this task does not own.
+            MenuBarItemManager.diagLog.error("eventSemaphore timed out in postClickEvents for \(item.logString); giving up without touching the lock")
             throw EventError.cannotComplete
         }
         defer { Task.detached { [eventSemaphore] in await eventSemaphore.signal() } }
