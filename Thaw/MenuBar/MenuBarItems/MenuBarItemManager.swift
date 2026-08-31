@@ -158,6 +158,30 @@ final class MenuBarItemManager: ObservableObject {
     /// Watches for the menu opened by a temporary show to close.
     private var menuCloseWatchTask: Task<Void, Never>?
 
+    /// Watches for a vanished item's app to put its icon back on screen.
+    private var pendingReturnWatchTask: Task<Void, Never>?
+
+    /// A pending relocation only fires during a cache pass, and nothing
+    /// guarantees one runs when the item's app relaunches. Poll lightly for
+    /// the item's return and trigger the pass ourselves.
+    private func watchForPendingItemReturn(tag: MenuBarItemTag) {
+        pendingReturnWatchTask?.cancel()
+        let base = "\(tag.namespace):\(tag.title)"
+        pendingReturnWatchTask = Task { [weak self] in
+            let deadline = ContinuousClock.now.advanced(by: .seconds(120))
+            while ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .seconds(2))
+                if Task.isCancelled { return }
+                let items = await MenuBarItem.getMenuBarItems(option: .activeSpace)
+                guard items.contains(where: { "\($0.tag.namespace):\($0.tag.title)" == base }) else { continue }
+                MenuBarItemManager.diagLog.info("Pending item \(base) returned; running cache pass to relocate it")
+                await self?.cacheItemsRegardless(skipRecentMoveCheck: true)
+                return
+            }
+            MenuBarItemManager.diagLog.debug("Stopped watching for \(base); it did not return within two minutes")
+        }
+    }
+
     /// True while a rehide is moving items back. A second rehide or a new
     /// temporary show must not start moves in the middle of it.
     private var rehideInProgress = false
@@ -3168,6 +3192,7 @@ extension MenuBarItemManager {
                         pendingRelocations will handle recovery
                         """
                     )
+                    watchForPendingItemReturn(tag: context.tag)
                 }
                 continue
             }
@@ -3835,6 +3860,18 @@ extension MenuBarItemManager {
         }
 
         let plan = LayoutPlanner.plan(currentItems: allCurrentItems, sections: plannerSections)
+        if plan.isEmpty {
+            let unresolved = plannerSections.flatMap { section -> [String] in
+                let saved = savedSectionOrder[section.id] ?? []
+                return saved.filter { savedID in
+                    !section.savedIdentifiers.contains(savedID)
+                        && !section.savedIdentifiers.contains(where: { baseIdentifier($0) == baseIdentifier(savedID) })
+                }
+            }
+            MenuBarItemManager.diagLog.debug("restoreWithPlanner: empty plan; current=\(allCurrentItems.count) eligible=\(eligibleItems.count) candidates=\(candidates.count) unresolvedSaved=\(unresolved.prefix(6))")
+            let placements = allCurrentItems.map { "\($0.identifier.split(separator: ":").first ?? ""):\($0.sectionID)" }
+            MenuBarItemManager.diagLog.debug("restoreWithPlanner: placements=\(placements)")
+        }
         MenuBarItemManager.diagLog.debug("restoreWithPlanner: executing plan with \(plan.count) moves")
         var didMove = false
         let sectionByItemIdentifier = Dictionary(
