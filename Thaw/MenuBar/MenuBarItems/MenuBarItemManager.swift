@@ -2823,7 +2823,10 @@ extension MenuBarItemManager {
                 }
                 let since = quietSince ?? ContinuousClock.now
                 quietSince = since
-                if ContinuousClock.now - since >= .milliseconds(120) {
+                let grace = await MainActor.run {
+                    self.appState?.settings.advanced.rehideGraceInterval ?? Defaults.DefaultValue.rehideGraceInterval
+                }
+                if ContinuousClock.now - since >= .milliseconds(Int(grace * 1000)) {
                     break
                 }
             }

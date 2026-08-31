@@ -61,6 +61,7 @@ struct AdvancedSettingsPane: View {
                 enableSecondaryContextMenu
                 showIceBarAtMouseLocationOnHotkey
                 showOnHoverDelay
+                rehideGraceDelay
                 iconRefreshInterval
             }
             IceSection("Permissions") {
@@ -195,6 +196,25 @@ struct AdvancedSettingsPane: View {
             isOn: binding
         )
         .annotation("Always show the \(Constants.displayName) Bar at the mouse pointer's location when it is shown using a hotkey.")
+    }
+
+    private var rehideGraceDelay: some View {
+        LabeledContent {
+            IceSlider(
+                value: $settings.rehideGraceInterval,
+                in: 0.1 ... 1,
+                step: 0.1
+            ) {
+                SecondsLabel(value: settings.rehideGraceInterval)
+            }
+        } label: {
+            Text("Tuck away delay")
+                .frame(minWidth: maxSliderLabelWidth, alignment: .leading)
+                .onFrameChange { frame in
+                    maxSliderLabelWidth = max(maxSliderLabelWidth, frame.width)
+                }
+        }
+        .annotation("How long a shown item lingers after you finish with it before it tucks away.")
     }
 
     private var showOnHoverDelay: some View {
