@@ -185,6 +185,27 @@ final class MenuBarItemManager: ObservableObject {
     /// True while a rehide is moving items back. A second rehide or a new
     /// temporary show must not start moves in the middle of it.
     private var rehideInProgress = false
+
+    /// Items whose moves keep timing out are left alone until this instant,
+    /// so an unresponsive item cannot hold the move lock in a retry storm.
+    private var moveCooldowns = [String: ContinuousClock.Instant]()
+
+    /// Records a move failure caused by the item not responding.
+    private func recordMoveFailure(for item: MenuBarItem) {
+        moveCooldowns[item.tag.tagIdentifier] = ContinuousClock.now.advanced(by: .seconds(60))
+        MenuBarItemManager.diagLog.warning("Cooling down moves of \(item.logString) for 60 seconds after repeated timeouts")
+    }
+
+    /// Whether automatic flows should leave this item alone for now. User
+    /// initiated actions ignore the cooldown.
+    private func isMoveCoolingDown(_ item: MenuBarItem) -> Bool {
+        guard let until = moveCooldowns[item.tag.tagIdentifier] else { return false }
+        if ContinuousClock.now >= until {
+            moveCooldowns.removeValue(forKey: item.tag.tagIdentifier)
+            return false
+        }
+        return true
+    }
     /// Handle to the in-flight startup settling Task. Retained so that a
     /// subsequent performSetup() call can cancel the previous settling period
     /// before starting a new one, preventing multiple concurrent settling tasks.
@@ -2397,6 +2418,11 @@ extension MenuBarItemManager {
                     try await waitForMoveOperationBuffer()
                     continue
                 }
+                if case EventError.eventOperationTimeout = error {
+                    recordMoveFailure(for: item)
+                } else if case EventError.itemResponseTimeout = error {
+                    recordMoveFailure(for: item)
+                }
                 if error is EventError {
                     throw error
                 }
@@ -3513,8 +3539,18 @@ extension MenuBarItemManager {
         let hiddenBounds = bestBounds(for: controlItems.hidden)
         var didRelocate = false
 
+        // A rehide in flight may be moving the same items; let it finish and
+        // pick the leftovers up on the next cache pass.
+        guard !rehideInProgress else {
+            return false
+        }
+
         for (tagIdentifier, sectionString) in pendingRelocations {
             guard !activelyShownTags.contains(tagIdentifier) else {
+                continue
+            }
+            if let item = items.first(where: { tagIdentifier == $0.tag.tagIdentifier }), isMoveCoolingDown(item) {
+                MenuBarItemManager.diagLog.debug("relocatePendingItems: \(tagIdentifier) is cooling down, skipping")
                 continue
             }
             guard let targetSection = sectionName(for: sectionString),
@@ -3888,6 +3924,10 @@ extension MenuBarItemManager {
 
         for plannedMove in plan {
             guard let item = itemByIdentifier[plannedMove.itemIdentifier] else { continue }
+            guard !isMoveCoolingDown(item) else {
+                MenuBarItemManager.diagLog.debug("restoreWithPlanner: \(item.logString) is cooling down, skipping")
+                continue
+            }
             let destination: MoveDestination
             switch plannedMove.destination {
             case let .leftOf(identifier):
