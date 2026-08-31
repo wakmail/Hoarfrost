@@ -1084,6 +1084,12 @@ extension MenuBarItemManager {
 
         guard itemCache != context.cache else {
             MenuBarItemManager.diagLog.debug("Not updating menu bar item cache, as items haven't changed")
+            // Still take the save opportunity: the pass that last changed the
+            // cache may have been barred from saving (settling, restoring),
+            // and saveSectionOrder itself skips writes when nothing differs.
+            if !isRestoringItemOrder, !isResettingLayout, !isInStartupSettling {
+                saveSectionOrder(from: context.cache)
+            }
             return
         }
 
@@ -5076,6 +5082,7 @@ extension MenuBarItemManager {
         )
         let wasRestoring = isRestoringItemOrder
         isRestoringItemOrder = true
+        isRestoringItemOrderTimestamp = Date()
         defer { isRestoringItemOrder = wasRestoring }
 
         var items = await MenuBarItem.getMenuBarItems(option: .activeSpace)
