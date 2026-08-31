@@ -2795,25 +2795,6 @@ extension MenuBarItemManager {
     private func rehideWhenMenuCloses(for item: MenuBarItem, windowsBefore: Set<CGWindowID>) {
         menuCloseWatchTask?.cancel()
         let pids = Set([item.ownerPID, item.sourcePID].compactMap { $0 })
-        // Big apps open follow up windows from helper processes (a menu
-        // choice opening a camera window, say), so match by app family as
-        // well as by process. Apple's own namespace is too broad to family
-        // match, so it stays process only.
-        let bundleID = item.sourceApplication?.bundleIdentifier
-            ?? item.owningApplication?.bundleIdentifier
-        let familyPrefix: String? = bundleID.flatMap { id in
-            let parts = id.split(separator: ".")
-            guard parts.count >= 2 else { return nil }
-            let prefix = parts.prefix(2).joined(separator: ".")
-            return prefix == "com.apple" ? nil : prefix
-        }
-        func windowBelongsToApp(_ window: WindowInfo) -> Bool {
-            if pids.contains(window.ownerPID) { return true }
-            guard let windowBundle = window.owningApplication?.bundleIdentifier else { return false }
-            if let bundleID, windowBundle == bundleID { return true }
-            if let familyPrefix, windowBundle.hasPrefix(familyPrefix + ".") || windowBundle == familyPrefix { return true }
-            return false
-        }
         menuCloseWatchTask = Task { [weak self] in
             guard let self else { return }
             var opened = Set<CGWindowID>()
@@ -2822,7 +2803,7 @@ extension MenuBarItemManager {
                 try? await Task.sleep(for: .milliseconds(80))
                 if Task.isCancelled { return }
                 let newIDs = Bridging.getWindowList(option: .onScreen).filter { !windowsBefore.contains($0) }
-                let owned = WindowInfo.createWindows(from: newIDs).filter { windowBelongsToApp($0) }
+                let owned = WindowInfo.createWindows(from: newIDs).filter { pids.contains($0.ownerPID) }
                 opened = Set(owned.map(\.windowID))
             }
             guard !opened.isEmpty else { return }
@@ -2835,7 +2816,7 @@ extension MenuBarItemManager {
                 try? await Task.sleep(for: .milliseconds(80))
                 if Task.isCancelled { return }
                 let newIDs = Bridging.getWindowList(option: .onScreen).filter { !windowsBefore.contains($0) }
-                let ownedOnScreen = WindowInfo.createWindows(from: newIDs).contains { windowBelongsToApp($0) }
+                let ownedOnScreen = WindowInfo.createWindows(from: newIDs).contains { pids.contains($0.ownerPID) }
                 if ownedOnScreen {
                     quietSince = nil
                     continue
