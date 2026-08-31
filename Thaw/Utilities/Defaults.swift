@@ -170,6 +170,7 @@ extension Defaults {
         static let hideApplicationMenus = true
         static let enableSecondaryContextMenu = true
         static let showOnHoverDelay: TimeInterval = 0.2
+        static let rehideGraceInterval: TimeInterval = 0.12
         static let tooltipDelay: TimeInterval = 0.5
         static let showMenuBarTooltips = false
         static let iconRefreshInterval: TimeInterval = 0.5
@@ -234,6 +235,7 @@ extension Defaults {
         case hideApplicationMenus = "HideApplicationMenus"
         case enableSecondaryContextMenu = "EnableSecondaryContextMenu"
         case showOnHoverDelay = "ShowOnHoverDelay"
+        case rehideGraceInterval = "RehideGraceInterval"
         case tooltipDelay = "TooltipDelay"
         case iconRefreshInterval = "IconRefreshInterval"
         case showMenuBarTooltips = "ShowMenuBarTooltips"

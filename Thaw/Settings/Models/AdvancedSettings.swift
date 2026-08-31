@@ -37,6 +37,10 @@ final class AdvancedSettings: ObservableObject {
     /// The delay before showing on hover.
     @Published var showOnHoverDelay = Defaults.DefaultValue.showOnHoverDelay
 
+    /// How long a temporarily shown item lingers after its app goes quiet
+    /// before it tucks away.
+    @Published var rehideGraceInterval = Defaults.DefaultValue.rehideGraceInterval
+
     /// The delay before showing a tooltip when hovering over a menu bar item.
     @Published var tooltipDelay = Defaults.DefaultValue.tooltipDelay
 
@@ -77,6 +81,7 @@ final class AdvancedSettings: ObservableObject {
         Defaults.ifPresent(key: .hideApplicationMenus, assign: &hideApplicationMenus)
         Defaults.ifPresent(key: .enableSecondaryContextMenu, assign: &enableSecondaryContextMenu)
         Defaults.ifPresent(key: .showOnHoverDelay, assign: &showOnHoverDelay)
+        Defaults.ifPresent(key: .rehideGraceInterval, assign: &rehideGraceInterval)
         Defaults.ifPresent(key: .tooltipDelay, assign: &tooltipDelay)
         Defaults.ifPresent(key: .showMenuBarTooltips, assign: &showMenuBarTooltips)
         Defaults.ifPresent(key: .iconRefreshInterval, assign: &iconRefreshInterval)
@@ -141,6 +146,13 @@ final class AdvancedSettings: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { delay in
                 Defaults.set(delay, forKey: .showOnHoverDelay)
+            }
+            .store(in: &c)
+
+        $rehideGraceInterval
+            .receive(on: DispatchQueue.main)
+            .sink { delay in
+                Defaults.set(delay, forKey: .rehideGraceInterval)
             }
             .store(in: &c)
 
