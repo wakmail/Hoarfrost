@@ -2800,7 +2800,7 @@ extension MenuBarItemManager {
             var opened = Set<CGWindowID>()
             let openDeadline = ContinuousClock.now.advanced(by: .milliseconds(1500))
             while ContinuousClock.now < openDeadline, opened.isEmpty {
-                try? await Task.sleep(for: .milliseconds(80))
+                try? await Task.sleep(for: .milliseconds(50))
                 if Task.isCancelled { return }
                 let newIDs = Bridging.getWindowList(option: .onScreen).filter { !windowsBefore.contains($0) }
                 let owned = WindowInfo.createWindows(from: newIDs).filter { pids.contains($0.ownerPID) }
@@ -2813,7 +2813,7 @@ extension MenuBarItemManager {
             // nothing new for a short grace period.
             var quietSince: ContinuousClock.Instant?
             while true {
-                try? await Task.sleep(for: .milliseconds(80))
+                try? await Task.sleep(for: .milliseconds(50))
                 if Task.isCancelled { return }
                 let newIDs = Bridging.getWindowList(option: .onScreen).filter { !windowsBefore.contains($0) }
                 let ownedOnScreen = WindowInfo.createWindows(from: newIDs).contains { pids.contains($0.ownerPID) }
@@ -2823,7 +2823,7 @@ extension MenuBarItemManager {
                 }
                 let since = quietSince ?? ContinuousClock.now
                 quietSince = since
-                if ContinuousClock.now - since >= .milliseconds(350) {
+                if ContinuousClock.now - since >= .milliseconds(200) {
                     break
                 }
             }
