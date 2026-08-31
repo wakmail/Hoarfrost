@@ -94,27 +94,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    /// Writes Ice's divider positions to match ours on quit, so if Ice is
-    /// launched next its Hidden and Always Hidden fences land exactly where
-    /// Hoarfrost's were and every item stays in the equivalent bucket.
-    /// Skipped while Ice is running, since it would overwrite the values.
+    /// Writes Ice's and Thaw's divider positions to match ours on quit, so
+    /// whichever of them is launched next fences the bar exactly where
+    /// Hoarfrost did and every item stays in the equivalent bucket. Each
+    /// app is skipped while it is running, since it would overwrite the
+    /// values, and skipped when it has never stored settings on this Mac.
     private func syncIceDividersToOurs() {
-        let iceBundleID = "com.jordanbaird.Ice"
-        guard NSRunningApplication.runningApplications(withBundleIdentifier: iceBundleID).isEmpty else { return }
-        guard
-            let ice = UserDefaults(suiteName: iceBundleID),
-            ice.persistentDomain(forName: iceBundleID)?.isEmpty == false
-        else {
-            return
-        }
         let ours = UserDefaults.standard
-        if let hidden = ours.object(forKey: "NSStatusItem Preferred Position Thaw.ControlItem.Hidden") {
-            ice.set(hidden, forKey: "NSStatusItem Preferred Position HItem")
+        let hidden = ours.object(forKey: "NSStatusItem Preferred Position Thaw.ControlItem.Hidden")
+        let always = ours.object(forKey: "NSStatusItem Preferred Position Thaw.ControlItem.AlwaysHidden")
+        let targets: [(bundleID: String, hiddenKey: String, alwaysKey: String)] = [
+            ("com.jordanbaird.Ice", "NSStatusItem Preferred Position HItem", "NSStatusItem Preferred Position AHItem"),
+            ("com.stonerl.Thaw", "NSStatusItem Preferred Position Thaw.ControlItem.Hidden", "NSStatusItem Preferred Position Thaw.ControlItem.AlwaysHidden"),
+        ]
+        for target in targets {
+            guard NSRunningApplication.runningApplications(withBundleIdentifier: target.bundleID).isEmpty else { continue }
+            guard
+                let other = UserDefaults(suiteName: target.bundleID),
+                other.persistentDomain(forName: target.bundleID)?.isEmpty == false
+            else {
+                continue
+            }
+            if let hidden {
+                other.set(hidden, forKey: target.hiddenKey)
+            }
+            if let always {
+                other.set(always, forKey: target.alwaysKey)
+            }
+            appState.diagLog.info("Synced \(target.bundleID) divider positions to Hoarfrost's for handoff")
         }
-        if let always = ours.object(forKey: "NSStatusItem Preferred Position Thaw.ControlItem.AlwaysHidden") {
-            ice.set(always, forKey: "NSStatusItem Preferred Position AHItem")
-        }
-        appState.diagLog.info("Synced Ice divider positions to Hoarfrost's for handoff")
     }
 
     func applicationWillTerminate(_: Notification) {
