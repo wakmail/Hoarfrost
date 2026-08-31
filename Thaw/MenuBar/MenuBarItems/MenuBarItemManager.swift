@@ -2826,8 +2826,14 @@ extension MenuBarItemManager {
                 await self.rehideTemporarilyShownItems()
             }
         }
-        // Also rehide when frontmost app changes (smart-ish).
+        // Also rehide when the frontmost app changes. dropFirst matters:
+        // this publisher emits the current value on subscription, and every
+        // rehide check reschedules this subscription, so without it the
+        // emission retriggers the check in a tight feedback loop that
+        // saturates the main thread while an interface is open.
         rehideCancellable = NSWorkspace.shared.publisher(for: \.frontmostApplication)
+            .dropFirst()
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
