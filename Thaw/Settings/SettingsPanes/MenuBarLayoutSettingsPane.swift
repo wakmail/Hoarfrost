@@ -73,12 +73,13 @@ struct MenuBarLayoutSettingsPane: View {
                         } label: {
                             Image(systemName: "chevron.up")
                         }
-                        .disabled(section.name.rank == 1)
+                        .disabled(section.name.rank == 1 || section.name.id == "alwaysHidden")
                         Button {
                             appState.menuBarManager.moveSection(id: section.name.id, offset: 1)
                         } label: {
                             Image(systemName: "chevron.down")
                         }
+                        .disabled(section.name.id == "alwaysHidden" || appState.menuBarManager.sections.last?.name.id == "alwaysHidden" && section.name.rank == appState.menuBarManager.sections.count - 2)
                             .disabled(section.name.rank == appState.menuBarManager.sections.count - 1)
                         Button("Remove", role: .destructive) { sectionBeingRemoved = section.name.id }
                     }

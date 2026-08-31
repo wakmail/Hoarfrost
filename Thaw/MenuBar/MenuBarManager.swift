@@ -154,7 +154,14 @@ final class MenuBarManager: ObservableObject {
             controlItemAutosaveName: "Thaw.ControlItem.Section.\(id)",
             hotkeyActionID: "ToggleSection.\(id)"
         )
-        sectionsConfiguration.hiddenSections.append(definition)
+        // New sections slot in above Always Hidden, which stays deepest so
+        // the layout collapses cleanly into Ice's model: Always Hidden maps
+        // to Ice's always hidden, everything else to Ice's hidden.
+        if let alwaysIndex = sectionsConfiguration.hiddenSections.firstIndex(where: { $0.id == "alwaysHidden" }) {
+            sectionsConfiguration.hiddenSections.insert(definition, at: alwaysIndex)
+        } else {
+            sectionsConfiguration.hiddenSections.append(definition)
+        }
         let name = MenuBarSection.Name(id: id, rank: sectionsConfiguration.hiddenSections.count, displayName: definition.displayName)
         let section = MenuBarSection(name: name)
         sections.append(section)
@@ -329,9 +336,17 @@ final class MenuBarManager: ObservableObject {
     }
 
     func moveSection(id: String, offset: Int) {
+        // Always Hidden stays deepest so the layout keeps mapping onto
+        // Ice's model. It cannot be moved and nothing moves past it.
+        guard id != "alwaysHidden" else { return }
         guard let index = sectionsConfiguration.hiddenSections.firstIndex(where: { $0.id == id }) else { return }
         let newIndex = index + offset
-        guard sectionsConfiguration.hiddenSections.indices.contains(newIndex) else { return }
+        guard
+            sectionsConfiguration.hiddenSections.indices.contains(newIndex),
+            sectionsConfiguration.hiddenSections[newIndex].id != "alwaysHidden"
+        else {
+            return
+        }
         sectionsConfiguration.hiddenSections.swapAt(index, newIndex)
         applyRanks()
         saveSectionsConfiguration()
