@@ -4,6 +4,7 @@
 //
 //  Copyright (Ice) © 2023–2025 Jordan Baird
 //  Copyright (Thaw) © 2026 Toni Förster
+//  Copyright (Hoarfrost) © 2026 wakmail
 //  Licensed under the GNU GPLv3
 
 import Foundation
@@ -176,6 +177,7 @@ extension Defaults {
         static let useLCSSortingOnNotchedDisplays = false
         static let useOptionClickToShowAlwaysHiddenSection = false
         static let useAXClickDelivery = true
+        static let usePlannedRestore = true
 
         // MARK: Search
 
@@ -239,6 +241,7 @@ extension Defaults {
         case useLCSSortingOnNotchedDisplays = "UseLCSSortingOnNotchedDisplays"
         case useOptionClickToShowAlwaysHiddenSection = "UseOptionClickToShowAlwaysHiddenSection"
         case useAXClickDelivery = "UseAXClickDelivery"
+        case usePlannedRestore = "UsePlannedRestore"
 
         // MARK: Search
 
