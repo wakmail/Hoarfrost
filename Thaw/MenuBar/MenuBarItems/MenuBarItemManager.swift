@@ -2055,12 +2055,29 @@ extension MenuBarItemManager {
         let start: CGPoint
         let end: CGPoint
 
+        // Nudge the drop one point clear of a control item's own edge.
+        //
+        // Dropping at exactly the target's minX or maxX names the boundary
+        // itself, and AppKit is then free to place the item on either side
+        // of it. Upstream Thaw hit this as #923 and again as #1035, where a
+        // reveal aimed left of a 26pt chevron planned targetMinX=837 and
+        // then measured the item at 863, landed on the wrong side, and was
+        // correctly rejected by the ordinal check below.
+        //
+        // Only control items get the bias. An ordinary item's edge is a
+        // real drop coordinate we mean literally, and the section dividers,
+        // chevron, and spacers are the ones whose edge is a boundary rather
+        // than a position.
+        let bias: CGFloat = destination.targetItem.tag.isControlItem ? 1 : 0
+        let leftX = targetBounds.minX - bias
+        let rightX = targetBounds.maxX + bias
+
         if #available(macOS 26.0, *) {
             switch destination {
             case .leftOfItem:
-                start = CGPoint(x: targetBounds.minX, y: targetBounds.minY)
+                start = CGPoint(x: leftX, y: targetBounds.minY)
             case .rightOfItem:
-                start = CGPoint(x: targetBounds.maxX, y: targetBounds.minY)
+                start = CGPoint(x: rightX, y: targetBounds.minY)
             }
             end = start
         } else {
@@ -2071,9 +2088,9 @@ extension MenuBarItemManager {
             start = CGPoint(x: 20_000, y: 20_000)
             switch destination {
             case .leftOfItem:
-                end = CGPoint(x: targetBounds.minX, y: targetBounds.midY)
+                end = CGPoint(x: leftX, y: targetBounds.midY)
             case .rightOfItem:
-                end = CGPoint(x: targetBounds.maxX, y: targetBounds.midY)
+                end = CGPoint(x: rightX, y: targetBounds.midY)
             }
         }
 
