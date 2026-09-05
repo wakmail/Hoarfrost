@@ -51,6 +51,19 @@ enum Constants {
         menuBarItemSpacingExecutableURIInfoPlistKey
     )
 
+    /// Info.plist key used to configure the executable URI for `launchctl`,
+    /// which restarts LaunchAgent owned menu bar items.
+    static let launchctlExecutableURIInfoPlistKey = "ThawLaunchctlExecutableURI"
+
+    /// The `launchctl` executable used by `MenuBarItemSpacingManager`.
+    ///
+    /// Resolved by absolute path from Info.plist rather than through the
+    /// inherited `PATH`, so the tool that restarts a system service cannot
+    /// be substituted by the environment we were launched in.
+    static let launchctlExecutableURL = requiredInfoPlistURL(
+        launchctlExecutableURIInfoPlistKey
+    )
+
     /// Returns a required URL from Info.plist.
     private static func requiredInfoPlistURL(
         _ key: String

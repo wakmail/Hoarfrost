@@ -25,5 +25,7 @@
 	<string>https://github.com/wakmail/Hoarfrost</string>
 	<key>ThawMenuBarItemSpacingExecutableURI</key>
 	<string>file:///usr/bin/env</string>
+	<key>ThawLaunchctlExecutableURI</key>
+	<string>file:///bin/launchctl</string>
 </dict>
 </plist>

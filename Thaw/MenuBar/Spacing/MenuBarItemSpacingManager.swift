@@ -50,13 +50,26 @@ final class MenuBarItemSpacingManager {
     var offset = 0
 
     /// Runs a command with the given arguments.
+    ///
+    /// The command name is passed as the first argument because the
+    /// configured executable is `env`, which resolves it.
     private func runCommand(_ command: String, with arguments: [String])
+        async throws
+    {
+        try await run(
+            executable: Constants.menuBarItemSpacingExecutableURL,
+            arguments: CollectionOfOne(command) + arguments
+        )
+    }
+
+    /// Runs the executable at the given URL with the given arguments.
+    private func run(executable executableURL: URL, arguments: [String])
         async throws
     {
         let process = Process()
 
-        process.executableURL = Constants.menuBarItemSpacingExecutableURL
-        process.arguments = CollectionOfOne(command) + arguments
+        process.executableURL = executableURL
+        process.arguments = arguments
 
         let task = Task.detached {
             try process.run()
@@ -165,9 +178,49 @@ final class MenuBarItemSpacingManager {
         )
     }
 
+    /// The launchd label that owns the given app's executable, or `nil`
+    /// when the app is not launched by a system LaunchAgent.
+    private func launchdLabel(for app: NSRunningApplication) -> String? {
+        guard let executableURL = app.executableURL else {
+            return nil
+        }
+        return SystemLaunchAgentIndex.system.label(forExecutableAt: executableURL)
+    }
+
+    /// Restarts the launchd job with the given label in the calling user's
+    /// GUI domain.
+    ///
+    /// `kickstart -k` kills the running instance and starts a fresh one
+    /// with launchd as its parent, which is the whole point: it is the only
+    /// way to bring a launch constrained agent back, and it replaces the
+    /// terminate then launch pair rather than supplementing it.
+    private func kickstartLaunchAgent(label: String) async throws {
+        let target = "gui/\(getuid())/\(label)"
+        try await run(
+            executable: Constants.launchctlExecutableURL,
+            arguments: ["kickstart", "-k", target]
+        )
+        MenuBarItemSpacingManager.diagLog.debug("Kickstarted launchd job \(target)")
+    }
+
     /// Asynchronously relaunches the given app.
     private func relaunchApp(_ app: NSRunningApplication) async throws {
         struct RelaunchError: Error {}
+
+        // System LaunchAgents (Spotlight, Dock, WindowManager and friends)
+        // can carry a launch constraint permitting launchd as their only
+        // launching parent. Terminating one and launching its bundle
+        // ourselves gets the new process SIGKILLed at exec (CODESIGNING,
+        // "Launch Constraint Violation"), and because terminate() counts as
+        // a *successful* exit, an agent with KeepAlive.SuccessfulExit=false
+        // (Spotlight's setting) is never respawned by launchd either. The
+        // item then stays gone until the machine is rebooted. Restart these
+        // through launchd instead. Ported from Thaw upstream #720.
+        if let label = launchdLabel(for: app) {
+            try await kickstartLaunchAgent(label: label)
+            return
+        }
+
         guard
             let url = app.bundleURL,
             let bundleIdentifier = app.bundleIdentifier
@@ -208,7 +261,10 @@ final class MenuBarItemSpacingManager {
                     app.bundleIdentifier != "com.apple.controlcenter", // ControlCenter handles its own relaunch, so skip it.
                     app != .current
                 else {
-                    break
+                    // Skip this PID, do not break: breaking aborts the
+                    // entire wave on the first skipped item, leaving most
+                    // apps un-relaunched depending on Set iteration order.
+                    continue
                 }
                 group.addTask { @MainActor in
                     do {
