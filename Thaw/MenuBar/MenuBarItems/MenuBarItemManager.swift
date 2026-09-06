@@ -3701,6 +3701,20 @@ extension MenuBarItemManager {
             return false
         }
 
+        // Never rearrange the bar underneath an open menu.
+        //
+        // This pass runs off the ordinary cache pass, so it can fire at any
+        // moment, including while a menu is showing. Moving an item is a
+        // synthetic drag on the real menu bar, and the window server closes
+        // an open menu the moment one lands: the symptom is a menu that
+        // shuts by itself a second or two after it was opened. There is no
+        // hurry here, so leave the bar alone and let the next cache pass
+        // pick the restore back up once the menu is gone.
+        if await isAnyMenuBarItemMenuOpen() {
+            MenuBarItemManager.diagLog.debug("restoreItemsToSavedSections: a menu is open, deferring restore")
+            return false
+        }
+
         // Give macOS time to settle after app restart before attempting moves.
         MenuBarItemManager.diagLog.debug("restoreItemsToSavedSections: waiting for menu bar to settle...")
         try? await Task.sleep(for: .milliseconds(500))
