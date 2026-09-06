@@ -2670,7 +2670,13 @@ extension MenuBarItemManager {
 
         /// Minimum time to treat the item as "showing" even if we can't
         /// detect a popup window (helps apps with unusual window levels).
-        private let graceInterval: TimeInterval = 2
+        ///
+        /// This is also the window in which the user gets to click into
+        /// whatever they just revealed, since an app that opens an ordinary
+        /// window without taking focus does not read as showing until they
+        /// do, so it wants to be a comfortable reach rather than the
+        /// tightest value that works.
+        private let graceInterval: TimeInterval = 4
 
         /// A Boolean value that indicates whether the menu bar item's
         /// interface is showing.
@@ -2702,6 +2708,21 @@ extension MenuBarItemManager {
                 return true
             }
 
+            // Then hold the item out for the grace period no matter what the
+            // windows say.
+            //
+            // This has to come before the tracked window checks, not after
+            // them. Revealing an item from the Hoarfrost bar leaves us
+            // frontmost while the app puts its window up without taking
+            // focus, so for the first moments the app is not active and its
+            // window is not one the checks below call showing. Landing in
+            // those checks that early is what rehid the item about a tenth
+            // of a second after it appeared. The grace is the window in
+            // which the user gets to click into what they just opened.
+            if Date.now.timeIntervalSince(firstShownDate) < graceInterval {
+                return true
+            }
+
             // First check the tracked popup window — this is the most
             // reliable signal when available.
             if let window = shownInterfaceWindow,
@@ -2714,21 +2735,18 @@ extension MenuBarItemManager {
                 {
                     return current.isOnScreen
                 }
-                // On screen is enough for the window we tracked.
+                // An ordinary window has to be both on screen and in front.
                 //
-                // This used to also require the owning app to be frontmost,
-                // which quietly assumed the click that opened the window
-                // also activated its app. Revealing an item from the
-                // Hoarfrost bar breaks that assumption: the click lands in
-                // our bar, we stay frontmost, and the app puts its window
-                // up without taking focus. The window was right there on
-                // screen and the item was rehidden underneath it inside two
-                // tenths of a second.
-                //
-                // We captured this particular window because it appeared in
-                // answer to the click, so its being on screen is the signal
-                // on its own. Whether its app also came forward says
-                // nothing about whether the user is finished with it.
+                // On screen alone is not enough here, however tempting: an
+                // app like Marklet answers the click with a document window
+                // it simply leaves up, so on screen never becomes false and
+                // the item would stay out until the bar was clicked by
+                // hand. Being frontmost is what actually tracks whether the
+                // user is still in it, and the grace above already covers
+                // the moments before they click into it.
+                if let app = current.owningApplication {
+                    return app.isActive && current.isOnScreen
+                }
                 return current.isOnScreen
             }
 
