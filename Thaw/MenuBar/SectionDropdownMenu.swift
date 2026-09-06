@@ -175,6 +175,28 @@ final class SectionDropdownMenu: NSObject {
             empty.isEnabled = false
             menu.addItem(empty)
         }
+
+        // With the icon hidden this menu is the only handle on the app, so
+        // it has to carry the way out.
+        menu.addItem(.separator())
+        let settingsItem = NSMenuItem(
+            title: String(localized: "\(Constants.displayName) Settings…"),
+            action: #selector(AppDelegate.openSettingsWindow),
+            keyEquivalent: ","
+        )
+        settingsItem.keyEquivalentModifierMask = .command
+        settingsItem.target = NSApp.delegate
+        menu.addItem(settingsItem)
+
+        let quitItem = NSMenuItem(
+            title: String(localized: "Quit \(Constants.displayName)"),
+            action: #selector(NSApp.terminate),
+            keyEquivalent: "q"
+        )
+        quitItem.keyEquivalentModifierMask = .command
+        quitItem.target = NSApp
+        menu.addItem(quitItem)
+
         return (menu, builders)
     }
 
