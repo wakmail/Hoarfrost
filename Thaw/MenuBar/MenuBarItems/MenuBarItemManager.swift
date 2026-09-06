@@ -2675,6 +2675,20 @@ extension MenuBarItemManager {
         /// A Boolean value that indicates whether the menu bar item's
         /// interface is showing.
         var isShowingInterface: Bool {
+            // Still the app you are in front of, so you are still using it,
+            // whatever its windows happen to be doing.
+            //
+            // This has to come before the window checks rather than after
+            // them, because the window checks do not merely fail to prove
+            // the interface is up, they actively conclude it is gone. An
+            // app that swaps one window for another, or sends the window we
+            // captured off screen, reads as closed within a frame or two,
+            // and with a short grace the item was pulled back under the
+            // user about a second after they opened it.
+            if NSRunningApplication(processIdentifier: sourcePID)?.isActive == true {
+                return true
+            }
+
             // First check the tracked popup window — this is the most
             // reliable signal when available.
             if let window = shownInterfaceWindow,
@@ -2702,25 +2716,7 @@ extension MenuBarItemManager {
 
             // Grace period expired and no tracked window. Check whether the
             // app has any visible popup or overlay window that we missed.
-            if appHasVisiblePopup() {
-                return true
-            }
-
-            // Some menu bar apps answer a click with an ordinary window
-            // rather than a popup, and reuse one they already had open
-            // instead of making a new one. Nothing about that is visible
-            // to the checks above: the window is at normal level, so it is
-            // not a popup, and it is not new, so it was never captured as
-            // the interface this click opened. The item would then be
-            // rehidden while the app was still plainly in use.
-            //
-            // Being the frontmost app is the signal that survives all of
-            // that. You clicked the icon, the app came forward, so you are
-            // still using it, and the item stays out until you leave.
-            if let app = NSRunningApplication(processIdentifier: sourcePID) {
-                return app.isActive
-            }
-            return false
+            return appHasVisiblePopup()
         }
 
         /// Whether the window lies within the menu bar strip along the top
@@ -2897,6 +2893,20 @@ extension MenuBarItemManager {
                 let newIDs = Bridging.getWindowList(option: .onScreen).filter { !windowsBefore.contains($0) }
                 let ownedOnScreen = WindowInfo.createWindows(from: newIDs).contains { pids.contains($0.ownerPID) }
                 if ownedOnScreen {
+                    quietSince = nil
+                    continue
+                }
+                // Still the app you are in front of, so you are still using
+                // it whatever its windows are doing.
+                //
+                // Counting windows alone is too literal. An app can answer
+                // the click by bringing forward a window it already had,
+                // which was never new, or by showing one briefly and
+                // swapping it for another. Either way the window check goes
+                // quiet while the app is plainly still in use, and with a
+                // short grace the item was pulled back under the user in
+                // about a second.
+                if pids.contains(where: { NSRunningApplication(processIdentifier: $0)?.isActive == true }) {
                     quietSince = nil
                     continue
                 }
