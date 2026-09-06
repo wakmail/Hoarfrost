@@ -2708,12 +2708,25 @@ extension MenuBarItemManager {
         /// Checks whether the item's owning application has any visible
         /// popup, menu, or overlay window on screen.
         private func appHasVisiblePopup() -> Bool {
+            let statusLevel = CGWindowLevelForKey(.statusWindow)
             let windows = WindowInfo.createWindows(option: .onScreen)
             return windows.contains { window in
                 guard window.ownerPID == sourcePID else {
                     return false
                 }
-                // Menu-level or status-level windows are popups.
+                // A status level window is a menu bar item, not a popup.
+                //
+                // The item being watched is itself one of these, owned by
+                // this very PID, and it does not go away while it is shown.
+                // Counting it made this return true for any visible item,
+                // so the interface looked like it was still up forever and
+                // the item never rehid on its own. Both checks below have
+                // to skip it: status level also sits above normal level,
+                // so the overlay check catches it just as readily.
+                if window.layer == statusLevel {
+                    return false
+                }
+                // Menu-level windows are popups.
                 if window.isMenuRelated {
                     return true
                 }
