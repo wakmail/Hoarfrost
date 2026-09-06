@@ -2675,6 +2675,19 @@ extension MenuBarItemManager {
         /// A Boolean value that indicates whether the menu bar item's
         /// interface is showing.
         var isShowingInterface: Bool {
+            let answer = isShowingInterfaceUncached
+            MenuBarItemManager.diagLog.debug(
+                """
+                isShowingInterface(\(self.tag.tagIdentifier)) = \(answer): \
+                pid=\(self.sourcePID) active=\(MenuBarItemManager.appIsActive(pid: self.sourcePID)) \
+                tracked=\(self.shownInterfaceWindow.map { String($0.windowID) } ?? "none") \
+                age=\(Int(Date.now.timeIntervalSince(self.firstShownDate) * 1000))ms
+                """
+            )
+            return answer
+        }
+
+        private var isShowingInterfaceUncached: Bool {
             // Still the app you are in front of, so you are still using it,
             // whatever its windows happen to be doing.
             //
@@ -2701,9 +2714,21 @@ extension MenuBarItemManager {
                 {
                     return current.isOnScreen
                 }
-                if let app = current.owningApplication {
-                    return app.isActive && current.isOnScreen
-                }
+                // On screen is enough for the window we tracked.
+                //
+                // This used to also require the owning app to be frontmost,
+                // which quietly assumed the click that opened the window
+                // also activated its app. Revealing an item from the
+                // Hoarfrost bar breaks that assumption: the click lands in
+                // our bar, we stay frontmost, and the app puts its window
+                // up without taking focus. The window was right there on
+                // screen and the item was rehidden underneath it inside two
+                // tenths of a second.
+                //
+                // We captured this particular window because it appeared in
+                // answer to the click, so its being on screen is the signal
+                // on its own. Whether its app also came forward says
+                // nothing about whether the user is finished with it.
                 return current.isOnScreen
             }
 
