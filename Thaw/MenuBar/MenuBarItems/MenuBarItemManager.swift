@@ -2685,7 +2685,7 @@ extension MenuBarItemManager {
             // captured off screen, reads as closed within a frame or two,
             // and with a short grace the item was pulled back under the
             // user about a second after they opened it.
-            if NSRunningApplication(processIdentifier: sourcePID)?.isActive == true {
+            if MenuBarItemManager.appIsActive(pid: sourcePID) {
                 return true
             }
 
@@ -2867,6 +2867,33 @@ extension MenuBarItemManager {
     /// item's app, so an app that always keeps some untitled window around
     /// (Droppy, for one) does not look like a menu that never closes. If no
     /// window appears within a short budget, the timer based rehide handles it.
+    /// Whether the app that owns `pid` is the frontmost app, counting any
+    /// other process running the same bundle.
+    ///
+    /// One app can be several processes at once: a second copy launched
+    /// from a build directory, a relaunch whose predecessor has not exited.
+    /// The status item belongs to one of them while the window a click
+    /// opens can belong to another, so asking only about the item's own PID
+    /// answers no while the user is plainly in the app.
+    ///
+    /// This matches the bundle identifier exactly. It is deliberately not
+    /// the family-wide match that would also catch an app's helpers and
+    /// extensions, which can hold an item out for windows the user never
+    /// opened.
+    nonisolated static func appIsActive(pid: pid_t) -> Bool {
+        guard let app = NSRunningApplication(processIdentifier: pid) else {
+            return false
+        }
+        if app.isActive {
+            return true
+        }
+        guard let bundleID = app.bundleIdentifier else {
+            return false
+        }
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .contains(where: \.isActive)
+    }
+
     private func rehideWhenMenuCloses(for item: MenuBarItem, windowsBefore: Set<CGWindowID>) {
         menuCloseWatchTask?.cancel()
         let pids = Set([item.ownerPID, item.sourcePID].compactMap { $0 })
@@ -2906,7 +2933,7 @@ extension MenuBarItemManager {
                 // quiet while the app is plainly still in use, and with a
                 // short grace the item was pulled back under the user in
                 // about a second.
-                if pids.contains(where: { NSRunningApplication(processIdentifier: $0)?.isActive == true }) {
+                if pids.contains(where: { MenuBarItemManager.appIsActive(pid: $0) }) {
                     quietSince = nil
                     continue
                 }
