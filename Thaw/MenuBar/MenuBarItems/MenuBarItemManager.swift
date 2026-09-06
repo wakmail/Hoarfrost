@@ -2702,7 +2702,25 @@ extension MenuBarItemManager {
 
             // Grace period expired and no tracked window. Check whether the
             // app has any visible popup or overlay window that we missed.
-            return appHasVisiblePopup()
+            if appHasVisiblePopup() {
+                return true
+            }
+
+            // Some menu bar apps answer a click with an ordinary window
+            // rather than a popup, and reuse one they already had open
+            // instead of making a new one. Nothing about that is visible
+            // to the checks above: the window is at normal level, so it is
+            // not a popup, and it is not new, so it was never captured as
+            // the interface this click opened. The item would then be
+            // rehidden while the app was still plainly in use.
+            //
+            // Being the frontmost app is the signal that survives all of
+            // that. You clicked the icon, the app came forward, so you are
+            // still using it, and the item stays out until you leave.
+            if let app = NSRunningApplication(processIdentifier: sourcePID) {
+                return app.isActive
+            }
+            return false
         }
 
         /// Whether the window lies within the menu bar strip along the top
@@ -3110,12 +3128,21 @@ extension MenuBarItemManager {
             return
         }
 
-        await eventSleep(for: .milliseconds(100))
-        let windowsAfterClick = WindowInfo.createWindows(option: .onScreen)
-
+        // Watch for the window the click opened rather than taking a single
+        // snapshot. A menu appears almost at once, but an app that answers
+        // with a real window can take noticeably longer than one hundred
+        // milliseconds, and missing it means the item gets rehidden while
+        // that window is still up.
         let clickPID = clickItem.sourcePID ?? clickItem.ownerPID
-        context.shownInterfaceWindow = windowsAfterClick.first { window in
-            window.ownerPID == clickPID && !idsBeforeClick.contains(window.windowID)
+        for _ in 0..<10 {
+            await eventSleep(for: .milliseconds(100))
+            let windowsAfterClick = WindowInfo.createWindows(option: .onScreen)
+            if let opened = windowsAfterClick.first(where: { window in
+                window.ownerPID == clickPID && !idsBeforeClick.contains(window.windowID)
+            }) {
+                context.shownInterfaceWindow = opened
+                return
+            }
         }
     }
 
