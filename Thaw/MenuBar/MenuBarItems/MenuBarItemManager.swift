@@ -2705,6 +2705,30 @@ extension MenuBarItemManager {
             return appHasVisiblePopup()
         }
 
+        /// Whether the window lies within the menu bar strip along the top
+        /// of whichever display it is on.
+        ///
+        /// A menu bar item's own window is as tall as the menu bar and
+        /// flush with the top of the screen. A panel an app hangs off its
+        /// icon starts below the menu bar, so comparing the bottom edge
+        /// tells the two apart even when both sit at status level.
+        private func isInMenuBarStrip(_ window: WindowInfo) -> Bool {
+            let screens = NSScreen.screens
+            guard let screen = screens.first(where: { $0.frame.intersects(window.bounds) })
+                ?? screens.first
+            else {
+                return false
+            }
+            // `visibleFrame` excludes the menu bar, so the gap above it is
+            // the menu bar's height. Window bounds put the origin at the
+            // top left, so the strip occupies the first `height` points.
+            let height = screen.frame.maxY - screen.visibleFrame.maxY
+            guard height > 0 else {
+                return false
+            }
+            return window.bounds.maxY <= height + 1
+        }
+
         /// Checks whether the item's owning application has any visible
         /// popup, menu, or overlay window on screen.
         private func appHasVisiblePopup() -> Bool {
@@ -2714,7 +2738,8 @@ extension MenuBarItemManager {
                 guard window.ownerPID == sourcePID else {
                     return false
                 }
-                // A status level window is a menu bar item, not a popup.
+                // A window sitting in the menu bar strip is a menu bar item,
+                // not a popup.
                 //
                 // The item being watched is itself one of these, owned by
                 // this very PID, and it does not go away while it is shown.
@@ -2723,7 +2748,13 @@ extension MenuBarItemManager {
                 // the item never rehid on its own. Both checks below have
                 // to skip it: status level also sits above normal level,
                 // so the overlay check catches it just as readily.
-                if window.layer == statusLevel {
+                //
+                // Position is what separates the icon from a real popup,
+                // not the window level on its own. Plenty of menu bar apps
+                // draw their panel at status level too, and excluding the
+                // whole level would stop us seeing those panels at all and
+                // rehide the item out from under an open one.
+                if window.layer == statusLevel, isInMenuBarStrip(window) {
                     return false
                 }
                 // Menu-level windows are popups.
