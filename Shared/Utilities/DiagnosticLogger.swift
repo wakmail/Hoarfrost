@@ -109,6 +109,19 @@ final class DiagnosticLogger: @unchecked Sendable {
         qos: .utility
     )
 
+    /// The size at which the current log file is rolled over.
+    ///
+    /// Debug logging here is extremely chatty: a busy session writes on
+    /// the order of a thousand lines a second, which is how one session
+    /// once reached four gigabytes and left the machine with no room to
+    /// launch the app that wrote it. With rollover, the five files kept by
+    /// ``cleanupOldLogFiles(in:keepCount:)`` bound the whole directory to
+    /// roughly 125 MB no matter how long the session runs.
+    private static let maxLogFileBytes: UInt64 = 25 * 1024 * 1024
+
+    /// Bytes written to the current log file.
+    private let currentFileBytesLock = OSAllocatedUnfairLock<UInt64>(initialState: 0)
+
     private init() {}
 
     // MARK: - File Management
@@ -145,9 +158,11 @@ final class DiagnosticLogger: @unchecked Sendable {
             macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)
             ========================================\n\n
             """
-            if let data = header.data(using: .utf8) {
-                handle.write(data)
+            let headerData = header.data(using: .utf8)
+            if let headerData {
+                handle.write(headerData)
             }
+            currentFileBytesLock.withLock { $0 = UInt64(headerData?.count ?? 0) }
 
             osLog.info("Diagnostic logging started: \(fileURL.path, privacy: .public)")
         } catch {
@@ -233,10 +248,38 @@ final class DiagnosticLogger: @unchecked Sendable {
         guard let data = line.data(using: .utf8) else { return }
 
         writeQueue.async { [weak self] in
-            self?.fileHandleLock.withLock { handle in
+            guard let self else { return }
+            self.fileHandleLock.withLock { handle in
                 handle?.write(data)
             }
+            let total = self.currentFileBytesLock.withLock { bytes -> UInt64 in
+                bytes += UInt64(data.count)
+                return bytes
+            }
+            if total >= Self.maxLogFileBytes {
+                self.rollOverLogFile()
+            }
         }
+    }
+
+    /// Closes the current log file and starts a new one.
+    ///
+    /// Only called from `writeQueue`, so the close and the reopen cannot
+    /// interleave with a write.
+    private func rollOverLogFile() {
+        guard isEnabled else { return }
+        fileHandleLock.withLock { handle in
+            if let handle {
+                let ts = timestampFormatter.string(from: Date())
+                let footer = "\n\(ts) [DiagnosticLogger] Size limit reached, continuing in a new file\n"
+                if let data = footer.data(using: .utf8) {
+                    handle.write(data)
+                }
+                try? handle.close()
+            }
+            handle = nil
+        }
+        openLogFile()
     }
 }
 

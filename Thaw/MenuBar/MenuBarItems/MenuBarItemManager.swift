@@ -4175,10 +4175,26 @@ extension MenuBarItemManager {
         // Get all on-screen windows.
         let windows = WindowInfo.createWindows(option: .onScreen)
 
+        // The menu bar items themselves are not menus.
+        //
+        // `isMenuRelated` is true for anything at status window level, and
+        // that is exactly the level a menu bar item's own window sits at.
+        // So an item whose title happens to be empty answers this check as
+        // if it had a menu open, forever, because the window never goes
+        // away. Our own control items are the reliable way to hit it: one
+        // permanently open "menu" meant the rehide check never came back
+        // false, so it rescheduled itself without end, pinning a core and
+        // filling the diagnostic log at about a thousand lines a second.
+        let itemWindowIDs = Set(items.map(\.windowID))
+
         MenuBarItemManager.diagLog.debug("Checking for open menus - Found \(items.count) menu bar items with PIDs: \(sourcePIDs)")
 
         // Check if any of the items' owning applications have a menu-related window.
         let result = windows.contains { window in
+            guard !itemWindowIDs.contains(window.windowID) else {
+                return false
+            }
+
             // Skip Control Center windows as they can be falsely detected when hovering
             guard window.owningApplication?.bundleIdentifier != MenuBarItemTag.Namespace.controlCenter.description else {
                 MenuBarItemManager.diagLog.debug("Skipping Control Center window: PID \(window.ownerPID), title: \(window.title ?? "nil")")
