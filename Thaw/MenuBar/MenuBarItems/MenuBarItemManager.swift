@@ -2728,9 +2728,17 @@ extension MenuBarItemManager {
             if let window = shownInterfaceWindow,
                let current = WindowInfo(windowID: window.windowID)
             {
+                // A real menu vanishes when it is dismissed, so its being
+                // on screen is the whole signal.
+                //
+                // Status level is deliberately not in this set, though it
+                // used to be. A menu closes itself; a status level panel is
+                // just as often one the app leaves up for as long as it
+                // likes, and treating presence as use meant the item stayed
+                // out forever once such a panel appeared. It falls through
+                // to the frontmost test below with every other window.
                 if current.layer == CGWindowLevelForKey(.popUpMenuWindow)
                     || current.layer == CGWindowLevelForKey(.popUpMenuWindow) - 1
-                    || current.layer == CGWindowLevelForKey(.statusWindow)
                     || current.layer == CGWindowLevelForKey(.mainMenuWindow)
                 {
                     return current.isOnScreen
@@ -2770,20 +2778,37 @@ extension MenuBarItemManager {
         /// icon starts below the menu bar, so comparing the bottom edge
         /// tells the two apart even when both sit at status level.
         private func isInMenuBarStrip(_ window: WindowInfo) -> Bool {
+            // Pick the display by its Core Graphics bounds, never by
+            // `NSScreen/frame`.
+            //
+            // Window bounds are Core Graphics coordinates: one global space
+            // across every display, origin at the top left of the primary
+            // one, y increasing downward. `NSScreen/frame` is AppKit's, with
+            // y increasing upward. Intersecting the two only appears to work
+            // on the primary display, where the menu bar sits at a small y
+            // in both readings. A display placed above or below the primary
+            // has coordinates that disagree outright, so the wrong screen
+            // gets picked, its menu bar height is applied to another
+            // display's window, and an item on a secondary display reads as
+            // a popup that never closes. `CGDisplayBounds` is already in the
+            // space the window bounds are in.
             let screens = NSScreen.screens
-            guard let screen = screens.first(where: { $0.frame.intersects(window.bounds) })
-                ?? screens.first
-            else {
+            guard let screen = screens.first(where: {
+                CGDisplayBounds($0.displayID).intersects(window.bounds)
+            }) else {
                 return false
             }
             // `visibleFrame` excludes the menu bar, so the gap above it is
-            // the menu bar's height. Window bounds put the origin at the
-            // top left, so the strip occupies the first `height` points.
+            // the menu bar's height. That is a height rather than a
+            // position, so it reads the same in either space.
             let height = screen.frame.maxY - screen.visibleFrame.maxY
             guard height > 0 else {
                 return false
             }
-            return window.bounds.maxY <= height + 1
+            // The strip is the top of this display, which is not y = 0 once
+            // the display is not the primary one.
+            let displayTop = CGDisplayBounds(screen.displayID).minY
+            return window.bounds.maxY <= displayTop + height + 1
         }
 
         /// Checks whether the item's owning application has any visible
@@ -2910,31 +2935,18 @@ extension MenuBarItemManager {
     /// item's app, so an app that always keeps some untitled window around
     /// (Droppy, for one) does not look like a menu that never closes. If no
     /// window appears within a short budget, the timer based rehide handles it.
-    /// Whether the app that owns `pid` is the frontmost app, counting any
-    /// other process running the same bundle.
+    /// Whether the app that owns `pid` is the frontmost app.
     ///
-    /// One app can be several processes at once: a second copy launched
-    /// from a build directory, a relaunch whose predecessor has not exited.
-    /// The status item belongs to one of them while the window a click
-    /// opens can belong to another, so asking only about the item's own PID
-    /// answers no while the user is plainly in the app.
-    ///
-    /// This matches the bundle identifier exactly. It is deliberately not
-    /// the family-wide match that would also catch an app's helpers and
-    /// extensions, which can hold an item out for windows the user never
-    /// opened.
+    /// Deliberately the one process, not every process sharing its bundle
+    /// identifier. Matching bundle-wide was added on the theory that a
+    /// second copy of an app could own the window while the first owned the
+    /// item, but the logs showed one process owning both, and the real
+    /// cause was elsewhere. What bundle-wide matching does reliably do is
+    /// hold an item out forever whenever an unrelated second copy happens
+    /// to be frontmost, which is the same failure mode as the family-wide
+    /// matching that was rejected earlier.
     nonisolated static func appIsActive(pid: pid_t) -> Bool {
-        guard let app = NSRunningApplication(processIdentifier: pid) else {
-            return false
-        }
-        if app.isActive {
-            return true
-        }
-        guard let bundleID = app.bundleIdentifier else {
-            return false
-        }
-        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
-            .contains(where: \.isActive)
+        NSRunningApplication(processIdentifier: pid)?.isActive == true
     }
 
     private func rehideWhenMenuCloses(for item: MenuBarItem, windowsBefore: Set<CGWindowID>) {
@@ -2957,9 +2969,25 @@ extension MenuBarItemManager {
             // popover that swaps windows. Rehide once the app has shown
             // nothing new for a short grace period.
             var quietSince: ContinuousClock.Instant?
+            // An app that simply leaves its window up never goes quiet, and
+            // without a bound this watch polls at twenty hertz for as long
+            // as that lasts and never hands the item back. Give up after a
+            // while and let the ordinary rehide timer decide: it asks
+            // whether the app is still frontmost, which is the right
+            // question once the windows have stopped answering it.
+            let watchDeadline = ContinuousClock.now.advanced(by: .seconds(120))
             while true {
                 try? await Task.sleep(for: .milliseconds(50))
                 if Task.isCancelled { return }
+                // Returning rather than breaking, because breaking out of
+                // this loop means "the interface closed, rehide now" and
+                // the deadline means the opposite: we never found out.
+                if ContinuousClock.now >= watchDeadline {
+                    MenuBarItemManager.diagLog.debug(
+                        "rehideWhenMenuCloses: watch deadline reached, leaving the item to the rehide timer"
+                    )
+                    return
+                }
                 let newIDs = Bridging.getWindowList(option: .onScreen).filter { !windowsBefore.contains($0) }
                 let ownedOnScreen = WindowInfo.createWindows(from: newIDs).contains { pids.contains($0.ownerPID) }
                 if ownedOnScreen {
@@ -3848,14 +3876,18 @@ extension MenuBarItemManager {
         // shuts by itself a second or two after it was opened. There is no
         // hurry here, so leave the bar alone and let the next cache pass
         // pick the restore back up once the menu is gone.
+        // Give macOS time to settle after app restart before attempting moves.
+        MenuBarItemManager.diagLog.debug("restoreItemsToSavedSections: waiting for menu bar to settle...")
+        try? await Task.sleep(for: .milliseconds(500))
+
+        // Checked after the settle rather than before it, so that the
+        // answer is as fresh as it can be when the moves start. Asking
+        // first and then sleeping half a second left room for a menu to be
+        // opened inside the gap and closed by the very moves this guards.
         if await isAnyMenuBarItemMenuOpen() {
             MenuBarItemManager.diagLog.debug("restoreItemsToSavedSections: a menu is open, deferring restore")
             return false
         }
-
-        // Give macOS time to settle after app restart before attempting moves.
-        MenuBarItemManager.diagLog.debug("restoreItemsToSavedSections: waiting for menu bar to settle...")
-        try? await Task.sleep(for: .milliseconds(500))
 
         let usePlannedRestore = (Defaults.object(forKey: .usePlannedRestore) as? Bool)
             ?? Defaults.DefaultValue.usePlannedRestore

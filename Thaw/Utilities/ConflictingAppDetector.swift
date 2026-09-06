@@ -41,29 +41,27 @@ enum ConflictingAppDetector {
         return conflicts
     }
 
-    /// Asks each of the given apps to quit, then waits briefly for them to
-    /// actually go away.
+    /// Asks each of the given apps to quit, and returns without waiting for
+    /// them to finish.
     ///
     /// `terminate()` is a request, not a kill: the app may put up a save
-    /// dialog or simply take a moment. We wait a short while so the menu
-    /// bar has settled before we start arranging it, but we never force
-    /// quit another app on the user's behalf.
-    /// Spins the run loop rather than awaiting, so that the launch sequence
-    /// that follows this alert keeps running in its original order.
+    /// dialog or simply take a moment. We never force quit another app on
+    /// the user's behalf, and we do not block on this one either.
+    ///
+    /// An earlier version waited up to five seconds by spinning a nested
+    /// run loop. That runs inside `applicationDidFinishLaunching`, so it
+    /// lets timers, notifications and app events reenter a launch that has
+    /// not finished setting up, and it busy loops whenever the run loop has
+    /// nothing to deliver. Neither is worth buying, because nothing here
+    /// needs the wait: the item manager holds its own startup settling
+    /// period before it touches the bar, which is the overlap this was
+    /// meant to cover.
     @MainActor
     private static func quit(_ conflicts: [Conflict]) {
         for conflict in conflicts where !conflict.app.isTerminated {
             conflict.app.terminate()
         }
-
-        let deadline = Date().addingTimeInterval(quitWaitTimeout)
-        while Date() < deadline, !conflicts.allSatisfy(\.app.isTerminated) {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.1))
-        }
     }
-
-    /// How long to wait for a conflicting app to quit before carrying on.
-    private static let quitWaitTimeout: TimeInterval = 5
 
     /// Shows a warning alert listing the conflicting apps, offering to quit
     /// them. Returns `true` if Hoarfrost should carry on.
