@@ -3777,6 +3777,21 @@ extension MenuBarItemManager {
             return false
         }
 
+        // Respect the cooldown, the way the other automatic flows do.
+        //
+        // This path never checked it, so an item that cannot be moved was
+        // retried on every pass regardless of how many times it had just
+        // failed: it never lands in its section, so it is still in the
+        // wrong place next time, so it is picked up again. A display change
+        // runs this check, which is why switching monitors set three stuck
+        // items moving every single time.
+        guard !isMoveCoolingDown(candidate) else {
+            MenuBarItemManager.diagLog.debug(
+                "relocateNewLeftmostItems: \(candidate.logString) is cooling down, skipping"
+            )
+            return false
+        }
+
         // Track this item so we don't move it again unless it truly appears new.
         let identifier = "\(candidate.tag.namespace):\(candidate.tag.title)"
         knownItemIdentifiers.insert(identifier)
