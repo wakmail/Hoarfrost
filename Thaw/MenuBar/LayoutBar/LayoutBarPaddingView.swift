@@ -128,115 +128,99 @@ final class LayoutBarPaddingView: NSView {
             return true
         }
 
-        var willMove = false
-
-        if let index = arrangedViews.firstIndex(of: draggingSource) {
-            if arrangedViews.count == 1 {
-                willMove = true
-                Task {
-                    guard case let .item(item) = draggingSource.kind else {
-                        self.container.canSetArrangedViews = true
-                        return
-                    }
-                    if let destination = await self.liveFallbackDestinationForDraggedItem() {
-                        self.move(item: item, to: destination)
-                    } else {
-                        Self.diagLog.error("No target item for layout bar drag")
-                        self.container.canSetArrangedViews = true
-                    }
-                }
-            } else if case let .item(item) = draggingSource.kind {
-                if let targetItem = nearestItem(toRightOf: index) {
-                    willMove = true
-                    move(item: item, to: .leftOfItem(targetItem))
-                } else if let targetItem = nearestItem(toLeftOf: index) {
-                    willMove = true
-                    move(item: item, to: .rightOfItem(targetItem))
-                } else if !arrangedViews.isEmpty {
-                    willMove = true
-                    Task {
-                        if let destination = await self.liveFallbackDestinationForDraggedItem() {
-                            self.move(item: item, to: destination)
-                        } else {
-                            Self.diagLog.error("No target item for layout bar drag")
-                            self.container.canSetArrangedViews = true
-                        }
-                    }
-                }
-            }
-        }
-
-        // Only re-enable view updates here if no move was initiated.
-        // When a move IS initiated, the move() Task re-enables after stabilization.
-        if !willMove {
+        guard !isStabilizing,
+              let index = arrangedViews.firstIndex(of: draggingSource),
+              case let .item(item) = draggingSource.kind,
+              let appState = container.appState
+        else {
             container.canSetArrangedViews = true
+            return false
         }
 
+        let sourceContainer = draggingSource.oldContainerInfo?.container
+        let destination: MenuBarItemManager.MoveDestination?
+        if let targetItem = nearestItem(toRightOf: index) {
+            destination = .leftOfItem(targetItem)
+        } else if let targetItem = nearestItem(toLeftOf: index) {
+            destination = .rightOfItem(targetItem)
+        } else {
+            destination = nil
+        }
+
+        // AppKit ends the drag before the physical move finishes. Hold both
+        // rows until stabilization completes, then resume their cache updates.
+        isStabilizing = true
+        container.isMovingItem = true
+        sourceContainer?.isMovingItem = true
+        showOverlay(true)
+        Task {
+            defer {
+                finishMove(from: sourceContainer)
+            }
+            let resolvedDestination: MenuBarItemManager.MoveDestination?
+            if let destination {
+                resolvedDestination = destination
+            } else {
+                resolvedDestination = await liveFallbackDestinationForDraggedItem()
+            }
+            guard let resolvedDestination else {
+                Self.diagLog.error("No target item for layout bar drag")
+                return
+            }
+            await move(item: item, to: resolvedDestination, from: sourceContainer, appState: appState)
+        }
         return true
     }
 
-    private func move(item: MenuBarItem, to destination: MenuBarItemManager.MoveDestination) {
-        guard let appState = container.appState else {
-            return
-        }
-        Task {
-            guard !isStabilizing else { return }
-            isStabilizing = true
-            await MainActor.run { self.showOverlay(true) }
-            try await Task.sleep(for: .milliseconds(25))
+    private func finishMove(from sourceContainer: LayoutBarContainer?) {
+        isStabilizing = false
+        showOverlay(false)
+        container.canSetArrangedViews = true
+        sourceContainer?.canSetArrangedViews = true
+        container.isMovingItem = false
+        sourceContainer?.isMovingItem = false
+    }
 
-            let watchdogTask = Task { [weak self, weak appState] in
-                guard let duration = self?.layoutWatchdogDuration() else { return }
-                try? await Task.sleep(for: duration + .seconds(1))
-                guard let self, !Task.isCancelled else { return }
-                await MainActor.run {
-                    if self.isStabilizing {
-                        self.isStabilizing = false
-                        self.showOverlay(false)
-                        self.container.canSetArrangedViews = true
-                    }
-                }
-                guard let appState else { return }
-                await appState.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
-                await appState.imageCache.updateCacheWithoutChecks(sections: MenuBarSection.Name.allCases)
+    private func move(
+        item: MenuBarItem,
+        to destination: MenuBarItemManager.MoveDestination,
+        from sourceContainer: LayoutBarContainer?,
+        appState: AppState
+    ) async {
+        let watchdogTask = Task { [weak self, weak appState] in
+            guard let duration = self?.layoutWatchdogDuration() else { return }
+            try? await Task.sleep(for: duration + .seconds(1))
+            guard let self, !Task.isCancelled else { return }
+            if self.isStabilizing {
+                self.finishMove(from: sourceContainer)
             }
-            do {
-                try await appState.itemManager.move(
-                    item: item,
-                    to: destination,
-                    skipInputPause: true,
-                    watchdogTimeout: MenuBarItemManager.layoutWatchdogTimeout
-                )
-                appState.itemManager.removeTemporarilyShownItemFromCache(with: item.tag)
-                await stabilizePlacement(of: item, to: destination, expectedSection: container.section, appState: appState)
-            } catch {
-                Self.diagLog.error("Error moving menu bar item: \(error)")
-                let alert = NSAlert(error: error)
-                alert.runModal()
-            }
-            watchdogTask.cancel()
-            if let appState = container.appState {
-                await appState.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
-            }
-            await MainActor.run {
-                self.isStabilizing = false
-                self.showOverlay(false)
-                // Update the badge anchor BEFORE re-enabling view updates, using
-                // the current visual arrangement from the drag. This ensures the
-                // didSet refresh uses the correct anchor position.
-                // Only update if this section actually contains the badge.
-                if let appState = self.container.appState,
-                   self.container.arrangedViews.contains(where: { $0.isNewItemsBadge })
-                {
-                    appState.itemManager.updateNewItemsPlacement(
-                        section: self.container.section,
-                        arrangedViews: self.container.arrangedViews
-                    )
-                }
-                // Re-enable view updates. The didSet will automatically refresh
-                // from the current cache with the updated badge anchor.
-                self.container.canSetArrangedViews = true
-            }
+            guard let appState else { return }
+            await appState.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
+            await appState.imageCache.updateCacheWithoutChecks(sections: MenuBarSection.Name.allCases)
+        }
+        defer { watchdogTask.cancel() }
+        do {
+            try await Task.sleep(for: .milliseconds(25))
+            try await appState.itemManager.move(
+                item: item,
+                to: destination,
+                skipInputPause: true,
+                watchdogTimeout: MenuBarItemManager.layoutWatchdogTimeout
+            )
+            appState.itemManager.removeTemporarilyShownItemFromCache(with: item.tag)
+            await stabilizePlacement(of: item, to: destination, expectedSection: container.section, appState: appState)
+        } catch {
+            Self.diagLog.error("Error moving menu bar item: \(error)")
+            let alert = NSAlert(error: error)
+            alert.runModal()
+        }
+        await appState.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
+        // Preserve the badge anchor before refreshing the settled rows.
+        if container.arrangedViews.contains(where: { $0.isNewItemsBadge }) {
+            appState.itemManager.updateNewItemsPlacement(
+                section: container.section,
+                arrangedViews: container.arrangedViews
+            )
         }
     }
 

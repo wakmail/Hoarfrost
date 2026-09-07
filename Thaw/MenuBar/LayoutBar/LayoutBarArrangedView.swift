@@ -59,7 +59,10 @@ extension LayoutBarArrangedView: NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, willBeginAt _: NSPoint) {
-        if let container = superview as? LayoutBarContainer {
+        if let container = superview as? LayoutBarContainer,
+           let index = container.arrangedViews.firstIndex(of: self)
+        {
+            oldContainerInfo = (container, index)
             container.canSetArrangedViews = false
         }
 
@@ -73,24 +76,18 @@ extension LayoutBarArrangedView: NSDraggingSource {
     func draggingSession(_: NSDraggingSession, endedAt _: NSPoint, operation _: NSDragOperation) {
         let sourceContainer = oldContainerInfo?.container
         defer {
+            sourceContainer?.canSetArrangedViews = true
             oldContainerInfo = nil
         }
 
         isDraggingPlaceholder = false
-
-        if isNewItemsBadge {
-            sourceContainer?.canSetArrangedViews = true
-            if let appState = sourceContainer?.appState {
-                sourceContainer?.setArrangedViews(items: appState.itemManager.itemCache.managedItems(for: sourceContainer?.section ?? .hidden))
-            }
-        }
 
         if !hasContainer {
             guard let (container, index) = oldContainerInfo else {
                 return
             }
             container.shouldAnimateNextLayoutPass = false
-            container.arrangedViews.insert(self, at: index)
+            container.arrangedViews.insert(self, at: min(index, container.arrangedViews.count))
         }
     }
 }

@@ -61,6 +61,15 @@ final class LayoutBarContainer: NSView {
         }
     }
 
+    /// Keeps cache updates paused until the physical move has settled,
+    /// even after AppKit has ended the dragging session.
+    var isMovingItem = false {
+        didSet {
+            guard !isMovingItem, oldValue, let appState else { return }
+            setArrangedViews(items: appState.itemManager.itemCache.managedItems(for: section))
+        }
+    }
+
     /// The contaner's arranged views.
     ///
     /// The views are laid out from left to right in the order that they
@@ -197,7 +206,8 @@ final class LayoutBarContainer: NSView {
     func setArrangedViews(items: [MenuBarItem]?) {
         guard
             let appState,
-            canSetArrangedViews
+            canSetArrangedViews,
+            !isMovingItem
         else {
             return
         }
