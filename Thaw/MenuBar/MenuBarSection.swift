@@ -257,6 +257,11 @@ final class MenuBarSection {
     func updateControlItemState(for screen: NSScreen? = nil) {
         guard let appState else { return }
 
+        if appState.menuBarManager.isZenMode {
+            controlItem.state = .hideSection
+            return
+        }
+
         // If the user wants to show, always show.
         if desiredState == .showSection {
             controlItem.state = .showSection
@@ -384,12 +389,12 @@ final class MenuBarSection {
 
     /// Hides the section.
     func hide() {
-        guard let menuBarManager, !isHidden else {
+        guard let menuBarManager, !isHidden || menuBarManager.isZenMode else {
             return
         }
 
         menuBarManager.iceBarPanel.close() // Make sure Ice Bar is always closed.
-        menuBarManager.showOnHoverAllowed = true
+        menuBarManager.showOnHoverAllowed = !menuBarManager.isZenMode
 
         for section in menuBarManager.sections {
             section.desiredState = .hideSection

@@ -442,7 +442,8 @@ extension HIDEventManager {
         }
 
         Task {
-            guard appState.settings.general.showOnClick else {
+            guard !appState.menuBarManager.isZenMode,
+                  appState.settings.general.showOnClick else {
                 return
             }
 

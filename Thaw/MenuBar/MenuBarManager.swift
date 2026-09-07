@@ -44,12 +44,19 @@ final class MenuBarManager: ObservableObject {
         isZenMode = enabled
         diagLog.info("Zen mode \(enabled ? "on" : "off")")
         if enabled {
-            showOnHoverAllowed = false
-            for section in sections where !section.name.isVisible {
+            cycleDebounceTask?.cancel()
+            cycleDebounceTask = nil
+            pendingCycleSteps = 0
+            iceBarPanel.close()
+            for section in sections {
                 section.hide()
             }
+            showOnHoverAllowed = false
         } else {
             showOnHoverAllowed = true
+            for section in sections {
+                section.updateControlItemState()
+            }
         }
     }
 
@@ -230,6 +237,7 @@ final class MenuBarManager: ObservableObject {
     /// window accumulate and land as one jump, so a fast double click goes
     /// straight to the second section without flashing the first.
     func cycleSections() {
+        guard !isZenMode else { return }
         diagLog.debug("cycleSections: click received, pending=\(pendingCycleSteps + 1)")
         guard sectionsConfiguration.cycleWaitsForMultiClicks else {
             performCycle(steps: 1)
@@ -266,6 +274,7 @@ final class MenuBarManager: ObservableObject {
     /// open right now, so a dropdown that dismissed itself long ago does
     /// not leave the cycle stuck mid sequence.
     private func performCycle(steps: Int) {
+        guard !isZenMode else { return }
         let ordered = sections
             .filter { !$0.name.isVisible && $0.isEnabled }
             .sorted { $0.name.rank < $1.name.rank }
