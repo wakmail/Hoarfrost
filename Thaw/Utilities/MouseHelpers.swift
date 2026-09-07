@@ -128,9 +128,42 @@ enum MouseHelpers {
     /// - Parameter point: The point to move the cursor to in global
     ///   display coordinates.
     static func warpCursor(to point: CGPoint) {
+        // Refuse to put the cursor somewhere it cannot be seen.
+        //
+        // The positions handed to this are captured before an operation and
+        // used after it, and a capture taken while another operation still
+        // had the cursor parked off screen records exactly that: a point
+        // far to the left of every display, since hidden items live at
+        // large negative coordinates. Warping there clamps the pointer into
+        // a screen corner, which is the pointer apparently teleporting to
+        // the top left for no reason. Somewhere visible, even if it is not
+        // where the pointer started, always beats a corner.
+        guard isOnAnyDisplay(point) else {
+            diagLog.error("Refusing to warp the cursor off screen to \(point.x), \(point.y)")
+            return
+        }
         let result = CGWarpMouseCursorPosition(point)
         if result != .success {
             diagLog.error("CGWarpMouseCursorPosition failed with error code \(result.rawValue)")
+        }
+    }
+
+    /// Whether the point lies inside one of the active displays, in the
+    /// top left origin space that `CGWarpMouseCursorPosition` expects.
+    private static func isOnAnyDisplay(_ point: CGPoint) -> Bool {
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else {
+            // No display list to check against, so do not block the warp.
+            return true
+        }
+        var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &displays, &count) == .success else {
+            return true
+        }
+        // Outset by a point, since a cursor resting against the far edge
+        // of a display sits exactly on a boundary that `contains` excludes.
+        return displays.prefix(Int(count)).contains {
+            CGDisplayBounds($0).insetBy(dx: -1, dy: -1).contains(point)
         }
     }
 
