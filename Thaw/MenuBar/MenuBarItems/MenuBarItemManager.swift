@@ -3777,6 +3777,29 @@ extension MenuBarItemManager {
             return false
         }
 
+        // Never relocate an item that has no name.
+        //
+        // With a second display attached, every app has a status item
+        // window on each one, and the copies on the display that does not
+        // currently own the menu bar come back with no window name at all.
+        // Enumeration is not display scoped, so those twins arrive here
+        // looking like items nobody has ever seen, and get filed away as
+        // new. They cannot be: an empty name is not an identity that
+        // survives anything, so they are new again on the next pass, and
+        // the move fails every time because the window is not the one
+        // hosting the item on this display. PenTablet, Karabiner and Little
+        // Snitch were being moved on every display change for this reason
+        // and none of it ever worked.
+        //
+        // An item that genuinely has no name is no loss either, since it
+        // could never be recorded or restored anyway.
+        guard !candidate.tag.title.isEmpty else {
+            MenuBarItemManager.diagLog.debug(
+                "relocateNewLeftmostItems: \(candidate.logString) has no name, skipping"
+            )
+            return false
+        }
+
         // Respect the cooldown, the way the other automatic flows do.
         //
         // This path never checked it, so an item that cannot be moved was
