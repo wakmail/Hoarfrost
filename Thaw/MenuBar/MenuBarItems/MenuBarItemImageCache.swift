@@ -112,6 +112,9 @@ final class MenuBarItemImageCache: ObservableObject {
     /// The currently running cache update task, if any.
     private var currentUpdateTask: Task<Void, Never>?
 
+    /// Display invalidation must survive ordinary presentation updates.
+    private var displayRecaptureTask: Task<Void, Never>?
+
     /// The display the menu bar was last seen on, so that a space change
     /// that does not move it costs nothing.
     private var lastMenuBarDisplayID: CGDirectDisplayID?
@@ -126,6 +129,7 @@ final class MenuBarItemImageCache: ObservableObject {
     deinit {
         memoryPressureSource?.cancel()
         currentUpdateTask?.cancel()
+        displayRecaptureTask?.cancel()
         liveRefreshTask?.cancel()
     }
 
@@ -135,6 +139,8 @@ final class MenuBarItemImageCache: ObservableObject {
     @MainActor
     func performSetup(with appState: AppState) {
         self.appState = appState
+        lastMenuBarDisplayID = Bridging.getActiveMenuBarDisplayID()
+        lastMenuBarSignature = menuBarSignature(displayID: lastMenuBarDisplayID)
         configureCancellables()
 
         // Try to load cached images from disk
@@ -251,6 +257,12 @@ final class MenuBarItemImageCache: ObservableObject {
         }
     }
 
+    @MainActor
+    private func menuBarSignature(displayID: CGDirectDisplayID?) -> String {
+        let height = NSScreen.screenWithMouse?.getMenuBarHeightEstimate()
+        return "\(displayID.map(String.init) ?? "?"):\(height.map { String(format: "%.1f", $0) } ?? "?")"
+    }
+
     /// Configures the internal observers for the cache.
     @MainActor
     private func configureCancellables() {
@@ -319,21 +331,33 @@ final class MenuBarItemImageCache: ObservableObject {
                     // value that never changes is a trigger that never
                     // fires.
                     let displayID = Bridging.getActiveMenuBarDisplayID()
-                    let height = NSScreen.screenWithMouse?.getMenuBarHeightEstimate()
-                    let signature = "\(displayID.map(String.init) ?? "?"):\(height.map { String(format: "%.1f", $0) } ?? "?")"
+                    let signature = self.menuBarSignature(displayID: displayID)
                     MenuBarItemImageCache.diagLog.debug(
                         "Menu bar signature now \(signature), was \(self.lastMenuBarSignature ?? "none")"
                     )
                     guard signature != self.lastMenuBarSignature else { return }
-                    let hadPrevious = self.lastMenuBarSignature != nil
                     self.lastMenuBarSignature = signature
                     self.lastMenuBarDisplayID = displayID
-                    guard hadPrevious else { return }
                     MenuBarItemImageCache.diagLog.debug("Menu bar moved, recapturing")
                     self.currentUpdateTask?.cancel()
-                    self.currentUpdateTask = Task {
+                    self.displayRecaptureTask?.cancel()
+                    self.displayRecaptureTask = Task {
+                        guard let appState = self.appState else { return }
+                        // Keep the display invalidation pending while moves settle.
+                        // Ordinary cache updates may return early during this time.
+                        while appState.itemManager.isResettingLayout ||
+                            appState.itemManager.lastMoveOperationOccurred(within: .seconds(1))
+                        {
+                            do {
+                                try await Task.sleep(for: .milliseconds(250))
+                            } catch {
+                                return
+                            }
+                        }
+                        guard !Task.isCancelled else { return }
                         await self.updateCache(
                             sections: MenuBarSection.Name.allCases,
+                            skipRecentMoveCheck: true,
                             ignoringPresentation: true
                         )
                     }
