@@ -112,6 +112,10 @@ final class MenuBarItemImageCache: ObservableObject {
     /// The currently running cache update task, if any.
     private var currentUpdateTask: Task<Void, Never>?
 
+    /// The display the menu bar was last seen on, so that a space change
+    /// that does not move it costs nothing.
+    private var lastMenuBarDisplayID: CGDirectDisplayID?
+
     /// The currently running live-refresh task, if any.
     private var liveRefreshTask: Task<Void, Never>?
 
@@ -283,21 +287,32 @@ final class MenuBarItemImageCache: ObservableObject {
                 .map { _ in () }
                 .eraseToAnyPublisher()
 
-            // A display change is not the same as the images merely being
-            // old. Menu bars differ in height between displays, so every
-            // captured image is now the wrong size for the bar it will be
-            // drawn in, and the ordinary path would leave them that way
-            // until something happened to be on screen to show them. That
-            // is the icons appearing too small after switching monitors and
-            // then correcting themselves much later.
-            screenChangePublisher
-                // Short, because this debounce is time the user spends
-                // looking at images sized for the display they just left.
-                // Long enough only to coalesce the burst of notifications a
-                // single display change sends.
+            // The menu bar moving to another display invalidates every
+            // captured image, because menu bars are not the same height on
+            // every display and each capture is sized to the bar it came
+            // from. The ordinary path treats that as the images merely
+            // being old and returns early unless something is already on
+            // screen to show them, so they stay wrong until something else
+            // happens to want them.
+            //
+            // Keying this on screen parameters alone was wrong: that
+            // notification fires when displays are connected, disconnected
+            // or reconfigured, and not at all when the pointer carries the
+            // menu bar from one display to another, which is the case that
+            // actually shows the wrong sizes. With separate Spaces, which
+            // is the default, that arrives as a space change instead, so
+            // both are watched and the display the menu bar is on decides
+            // whether anything needs doing.
+            Publishers.Merge(spaceChangePublisher, screenChangePublisher)
                 .debounce(for: .milliseconds(120), scheduler: DispatchQueue.main)
                 .sink { [weak self] _ in
                     guard let self else { return }
+                    let displayID = Bridging.getActiveMenuBarDisplayID()
+                    guard displayID != self.lastMenuBarDisplayID else { return }
+                    self.lastMenuBarDisplayID = displayID
+                    MenuBarItemImageCache.diagLog.debug(
+                        "Menu bar moved to display \(displayID.map(String.init) ?? "unknown"), recapturing"
+                    )
                     self.currentUpdateTask?.cancel()
                     self.currentUpdateTask = Task {
                         await self.updateCache(
