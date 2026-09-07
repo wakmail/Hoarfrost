@@ -194,6 +194,14 @@ final class MenuBarItemManager: ObservableObject {
     /// next cooldown lasts.
     private var moveFailureCounts = [String: Int]()
 
+    /// When each menu-looking window was first seen, so that one which
+    /// never goes away can be told apart from a menu the user just opened.
+    private var menuWindowFirstSeen = [CGWindowID: Date]()
+
+    /// How long a window can look like an open menu before it is treated as
+    /// part of the furniture instead.
+    private static let maximumMenuOpenAge: TimeInterval = 60
+
     /// Records a move failure caused by the item not responding.
     private func recordMoveFailure(for item: MenuBarItem) {
         // Back off further each time rather than retrying at a fixed
@@ -4559,6 +4567,12 @@ extension MenuBarItemManager {
 
         MenuBarItemManager.diagLog.debug("Checking for open menus - Found \(items.count) menu bar items with PIDs: \(sourcePIDs)")
 
+        // Forget windows that have gone, so a window id reused later is
+        // aged from when it came back rather than from a previous life.
+        let now = Date.now
+        let liveWindowIDs = Set(windows.map(\.windowID))
+        menuWindowFirstSeen = menuWindowFirstSeen.filter { liveWindowIDs.contains($0.key) }
+
         // Check if any of the items' owning applications have a menu-related window.
         let result = windows.contains { window in
             guard !itemWindowIDs.contains(window.windowID) else {
@@ -4571,7 +4585,26 @@ extension MenuBarItemManager {
                 return false
             }
 
-            let isMenuOpen = sourcePIDs.contains(window.ownerPID) && window.isMenuRelated && (window.title?.isEmpty ?? true)
+            var isMenuOpen = sourcePIDs.contains(window.ownerPID) && window.isMenuRelated && (window.title?.isEmpty ?? true)
+            // A window that has been there for ages is not an open menu.
+            //
+            // Some apps keep a permanent window at menu level: Droppy's
+            // drop target is one, and it answers every part of the test
+            // above for as long as the app runs. Read literally, a menu is
+            // then open forever, and anything that waits for menus to close
+            // waits forever with it. That is what stopped items being moved
+            // back to their sections at all.
+            //
+            // A menu the user actually has open is a recent thing, so age
+            // is what separates the two. The threshold is generous because
+            // the cost of being wrong is only a deferred move.
+            if isMenuOpen {
+                let firstSeen = menuWindowFirstSeen[window.windowID] ?? now
+                menuWindowFirstSeen[window.windowID] = firstSeen
+                if now.timeIntervalSince(firstSeen) > Self.maximumMenuOpenAge {
+                    isMenuOpen = false
+                }
+            }
             if isMenuOpen {
                 MenuBarItemManager.diagLog.debug("Found open menu window: PID \(window.ownerPID), owner: \(window.ownerName as NSObject?), title: \(window.title ?? "nil"), isMenuRelated: \(window.isMenuRelated)")
             }
