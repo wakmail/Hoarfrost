@@ -71,10 +71,35 @@ enum MouseHelpers {
     /// of the screen.
     static var locationCoreGraphics: CGPoint? {
         let point = CGEvent(source: nil)?.location
-        if let point, isOnAnyDisplay(point) {
+        // Only trust a reading taken while the cursor is ours to read.
+        //
+        // While an operation has the cursor parked, this reports wherever
+        // our own synthetic events left it, which is a real coordinate on a
+        // real display and so indistinguishable from a genuine one. That is
+        // what made the guard against off screen points useless: a corner
+        // is a legal position.
+        if let point, isOnAnyDisplay(point), !isCursorParked {
             lastGoodLocationLock.sync { lastGoodLocation = point }
         }
         return point
+    }
+
+    /// Whether an operation currently has the cursor parked.
+    private static var isCursorParked: Bool {
+        cursorLock.sync { cursorHideCount > 0 }
+    }
+
+    /// A position worth restoring the cursor to after an operation.
+    ///
+    /// Returns where the pointer actually is when nothing has it parked,
+    /// and otherwise the last place it was seen while free, because a
+    /// reading taken mid operation is our own events looking back at us.
+    static func captureRestorePoint() -> CGPoint? {
+        if !isCursorParked, let live = CGEvent(source: nil)?.location, isOnAnyDisplay(live) {
+            lastGoodLocationLock.sync { lastGoodLocation = live }
+            return live
+        }
+        return lastGoodLocationLock.sync { lastGoodLocation }
     }
 
     /// The last cursor position seen somewhere visible.

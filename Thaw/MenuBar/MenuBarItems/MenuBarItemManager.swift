@@ -1643,7 +1643,10 @@ extension MenuBarItemManager {
 
     /// Returns the current mouse location.
     private nonisolated func getMouseLocation() throws -> CGPoint {
-        guard let location = MouseHelpers.locationCoreGraphics else {
+        // Every caller of this wants somewhere to put the cursor back, so
+        // it asks for a restore point rather than the raw position, which
+        // mid operation is just our own events looking back at us.
+        guard let location = MouseHelpers.captureRestorePoint() else {
             throw EventError.missingMouseLocation
         }
         return location
