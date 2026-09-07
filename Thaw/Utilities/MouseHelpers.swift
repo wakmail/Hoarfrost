@@ -70,8 +70,19 @@ enum MouseHelpers {
     /// space used by `CoreGraphics`, with the origin at the top left
     /// of the screen.
     static var locationCoreGraphics: CGPoint? {
-        CGEvent(source: nil)?.location
+        let point = CGEvent(source: nil)?.location
+        if let point, isOnAnyDisplay(point) {
+            lastGoodLocationLock.sync { lastGoodLocation = point }
+        }
+        return point
     }
+
+    /// The last cursor position seen somewhere visible.
+    ///
+    /// Kept so that a restore always has somewhere real to aim at, even
+    /// when the position it was given is not.
+    private static var lastGoodLocation: CGPoint?
+    private static let lastGoodLocationLock = DispatchQueue(label: "MouseHelpers.lastGoodLocation")
 
     /// Hides the mouse cursor and increments the hide cursor count.
     static func hideCursor(watchdogTimeout: DispatchTimeInterval? = nil) {
@@ -120,6 +131,33 @@ enum MouseHelpers {
             diagLog.error("CGDisplayShowCursor failed with error code \(result.rawValue)")
             // Don't reset count on failure to prevent imbalance
         }
+
+        // Whatever else went on, the pointer is about to be visible again,
+        // so it had better be somewhere the user can see it. This is the
+        // last line of defence rather than the plan: every path that parks
+        // the cursor is supposed to put it back itself, and this only
+        // catches the ones that did not, including any that time out or
+        // throw on the way.
+        rescueCursorIfOffScreen()
+    }
+
+    /// Puts the cursor back somewhere visible if it has been left off the
+    /// edge of every display.
+    static func rescueCursorIfOffScreen() {
+        guard
+            let current = CGEvent(source: nil)?.location,
+            !isOnAnyDisplay(current)
+        else {
+            return
+        }
+        guard
+            let fallback = lastGoodLocationLock.sync(execute: { lastGoodLocation }),
+            isOnAnyDisplay(fallback)
+        else {
+            return
+        }
+        diagLog.error("Cursor was left off screen at \(current.x), \(current.y); restoring to \(fallback.x), \(fallback.y)")
+        CGWarpMouseCursorPosition(fallback)
     }
 
     /// Moves the mouse cursor to the given point without generating
@@ -138,11 +176,27 @@ enum MouseHelpers {
         // a screen corner, which is the pointer apparently teleporting to
         // the top left for no reason. Somewhere visible, even if it is not
         // where the pointer started, always beats a corner.
-        guard isOnAnyDisplay(point) else {
-            diagLog.error("Refusing to warp the cursor off screen to \(point.x), \(point.y)")
-            return
+        // Rescue rather than refuse.
+        //
+        // Refusing was not enough. By the time a restore runs, our own
+        // events have already taken the cursor off screen, so declining to
+        // move it leaves it exactly where the bad warp would have put it:
+        // clamped into a corner. The pointer has to be put somewhere real,
+        // and the last position it was seen at on an actual display is the
+        // best answer available.
+        var target = point
+        if !isOnAnyDisplay(target) {
+            guard
+                let fallback = lastGoodLocationLock.sync(execute: { lastGoodLocation }),
+                isOnAnyDisplay(fallback)
+            else {
+                diagLog.error("Cursor target \(point.x), \(point.y) is off screen and there is no known good position to fall back on")
+                return
+            }
+            diagLog.error("Cursor target \(point.x), \(point.y) is off screen; restoring to \(fallback.x), \(fallback.y) instead")
+            target = fallback
         }
-        let result = CGWarpMouseCursorPosition(point)
+        let result = CGWarpMouseCursorPosition(target)
         if result != .success {
             diagLog.error("CGWarpMouseCursorPosition failed with error code \(result.rawValue)")
         }
