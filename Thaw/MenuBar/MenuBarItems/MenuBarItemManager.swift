@@ -413,14 +413,53 @@ final class MenuBarItemManager: ObservableObject {
             // since that means the app restarted with a different instanceIndex.
             for (sectionKeyString, savedIdentifiers) in savedSectionOrder {
                 guard sectionName(for: sectionKeyString) == section else { continue }
-                for identifier in savedIdentifiers where !allCurrentIdentifiers.contains(identifier) {
+                for (savedIndex, identifier) in savedIdentifiers.enumerated()
+                    where !allCurrentIdentifiers.contains(identifier)
+                {
+                    // Drop the readings taken while window titles were
+                    // degraded.
+                    //
+                    // An identifier is namespace:title, so an empty title is
+                    // a reading from a moment when the window server was not
+                    // answering with names. It can never match a live item
+                    // again, yet it was carried forward on every save, so
+                    // these accumulate without bound and hold slots in the
+                    // order that a real item should be occupying.
+                    let titlePart = identifier
+                        .split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+                        .dropFirst()
+                        .first
+                    guard let titlePart, !titlePart.isEmpty else { continue }
+
                     // Check if this identifier's base matches any current item
                     let baseID = identifier.split(separator: ":", maxSplits: 2).prefix(2).joined(separator: ":")
                     let isStaleInstanceIndex = allCurrentBaseIdentifiers.contains(baseID)
                     guard !isStaleInstanceIndex else { continue }
+                    guard !identifiers.contains(identifier) else { continue }
 
-                    if !identifiers.contains(identifier) {
-                        identifiers.append(identifier)
+                    // Put a closed app back where it was, not on the end.
+                    //
+                    // Appending threw away the position of every item that
+                    // was not running when the order was saved, and the
+                    // saved order is what the restore places items by. So
+                    // quitting an app was enough to lose its place: it came
+                    // back at the far end of its section rather than where
+                    // the user had put it, and a crash did the same.
+                    //
+                    // Its neighbour to the left is the thing to hold on to,
+                    // since that survives the items around it coming and
+                    // going. Absent items are walked in saved order, so one
+                    // that follows another absent item anchors on the one
+                    // just reinserted and the run keeps its shape.
+                    let anchor = savedIdentifiers[..<savedIndex].last {
+                        identifiers.contains($0)
+                    }
+                    if let anchor, let anchorIndex = identifiers.firstIndex(of: anchor) {
+                        identifiers.insert(identifier, at: identifiers.index(after: anchorIndex))
+                    } else {
+                        // Nothing to its left survived, so it was at the
+                        // start of the section.
+                        identifiers.insert(identifier, at: 0)
                     }
                 }
             }
