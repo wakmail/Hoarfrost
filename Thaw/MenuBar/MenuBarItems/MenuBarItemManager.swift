@@ -4585,31 +4585,24 @@ extension MenuBarItemManager {
         menuWindowFirstSeen = menuWindowFirstSeen.filter { liveWindowIDs.contains($0.key) }
 
         // Check if any of the items' owning applications have a menu-related window.
-        let result = windows.contains { window in
+        var result = false
+        for window in windows {
             guard !itemWindowIDs.contains(window.windowID) else {
-                return false
+                continue
             }
 
             // Skip Control Center windows as they can be falsely detected when hovering
             guard window.owningApplication?.bundleIdentifier != MenuBarItemTag.Namespace.controlCenter.description else {
                 MenuBarItemManager.diagLog.debug("Skipping Control Center window: PID \(window.ownerPID), title: \(window.title ?? "nil")")
-                return false
+                continue
             }
 
             var isMenuOpen = sourcePIDs.contains(window.ownerPID) && window.isMenuRelated && (window.title?.isEmpty ?? true)
-            // A window that has been there for ages is not an open menu.
-            //
-            // Some apps keep a permanent window at menu level: Droppy's
-            // drop target is one, and it answers every part of the test
-            // above for as long as the app runs. Read literally, a menu is
-            // then open forever, and anything that waits for menus to close
-            // waits forever with it. That is what stopped items being moved
-            // back to their sections at all.
-            //
-            // A menu the user actually has open is a recent thing, so age
-            // is what separates the two. The threshold is generous because
-            // the cost of being wrong is only a deferred move.
-            if isMenuOpen {
+            // Only ambiguous status windows age out. A real popup menu can
+            // remain open as long as the user needs it.
+            let popupLevel = CGWindowLevelForKey(.popUpMenuWindow)
+            let isPopupMenu = window.layer == Int(popupLevel) || window.layer == Int(popupLevel - 1)
+            if isMenuOpen, !isPopupMenu {
                 let firstSeen = menuWindowFirstSeen[window.windowID] ?? now
                 menuWindowFirstSeen[window.windowID] = firstSeen
                 if now.timeIntervalSince(firstSeen) > Self.maximumMenuOpenAge {
