@@ -432,6 +432,11 @@ extension HIDEventManager {
     // MARK: Handle Show On Click
 
     private func handleShowOnClick(appState: AppState, screen: NSScreen, isDoubleClick: Bool = false) {
+        // Clicking the empty bar is the main way sections open here, so it
+        // is the main thing zen mode has to stand down.
+        guard !appState.menuBarManager.isZenMode else {
+            return
+        }
         guard isMouseInsideEmptyMenuBarSpace(appState: appState, screen: screen) else {
             return
         }
@@ -761,6 +766,9 @@ extension HIDEventManager {
     // MARK: Handle Show On Hover
 
     private func handleShowOnHover(appState: AppState, screen: NSScreen) {
+        guard !appState.menuBarManager.isZenMode else {
+            return
+        }
         // Make sure the "ShowOnHover" feature is enabled and allowed.
         guard
             appState.settings.general.showOnHover,

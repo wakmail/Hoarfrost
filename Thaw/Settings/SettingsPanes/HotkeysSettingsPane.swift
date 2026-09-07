@@ -53,6 +53,8 @@ struct HotkeysSettingsPane: View {
                     Text("Enable the \(Constants.displayName) Bar")
                 case .toggleApplicationMenus:
                     Text("Toggle application menus")
+                case .toggleZenMode:
+                    Text("Toggle zen mode")
                 case .profileApply:
                     EmptyView()
                 }

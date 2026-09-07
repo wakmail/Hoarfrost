@@ -18,6 +18,7 @@ enum HotkeyAction: Hashable, Codable {
     // Other
     case enableIceBar
     case toggleApplicationMenus
+    case toggleZenMode
 
     /// Used by profile hotkeys — action is handled externally.
     case profileApply
@@ -30,6 +31,7 @@ enum HotkeyAction: Hashable, Codable {
         case .searchMenuBarItems: return "SearchMenuBarItems"
         case .enableIceBar: return "EnableIceBar"
         case .toggleApplicationMenus: return "ToggleApplicationMenus"
+        case .toggleZenMode: return "ToggleZenMode"
         case .profileApply: return "ProfileApply"
         }
     }
@@ -41,6 +43,7 @@ enum HotkeyAction: Hashable, Codable {
         case "SearchMenuBarItems": self = .searchMenuBarItems
         case "EnableIceBar": self = .enableIceBar
         case "ToggleApplicationMenus": self = .toggleApplicationMenus
+        case "ToggleZenMode": self = .toggleZenMode
         case "ProfileApply": self = .profileApply
         default:
             guard rawValue.hasPrefix("ToggleSection.") else { return nil }
@@ -49,7 +52,7 @@ enum HotkeyAction: Hashable, Codable {
     }
 
     static var allCases: [HotkeyAction] {
-        [.toggleHiddenSection, .toggleAlwaysHiddenSection, .searchMenuBarItems, .enableIceBar, .toggleApplicationMenus, .profileApply]
+        [.toggleHiddenSection, .toggleAlwaysHiddenSection, .searchMenuBarItems, .enableIceBar, .toggleApplicationMenus, .toggleZenMode, .profileApply]
     }
 
     func encode(to encoder: Encoder) throws {
@@ -100,6 +103,8 @@ enum HotkeyAction: Hashable, Codable {
             appState.settings.displaySettings.toggleIceBarForActiveDisplay()
         case .toggleApplicationMenus:
             appState.menuBarManager.toggleApplicationMenus()
+        case .toggleZenMode:
+            appState.menuBarManager.toggleZenMode()
         case .profileApply:
             // Handled externally by ProfileManager's custom registration.
             break

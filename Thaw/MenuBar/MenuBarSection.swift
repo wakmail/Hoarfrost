@@ -283,6 +283,16 @@ final class MenuBarSection {
 
     /// Shows the section.
     func show(triggeredByHotkey: Bool = false) {
+        // Zen mode means sealed, so nothing reopens a section behind the
+        // user's back. A hotkey is the user asking directly, and asking
+        // directly lifts the seal rather than being refused by it.
+        if menuBarManager?.isZenMode == true {
+            guard triggeredByHotkey else {
+                diagLog.debug("show: \(name.logString) refused, zen mode is on")
+                return
+            }
+            menuBarManager?.setZenMode(false)
+        }
         guard let menuBarManager, isHidden else {
             return
         }

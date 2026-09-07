@@ -27,6 +27,37 @@ final class MenuBarManager: ObservableObject {
     /// A Boolean value that indicates whether the "ShowOnHover" feature is allowed.
     @Published var showOnHoverAllowed = true
 
+    /// Whether the bar is sealed.
+    ///
+    /// Zen mode is the deliberate opposite of every other way a section
+    /// opens. Hovering, clicking the empty bar, an icon asking for
+    /// attention: all of it stands down until this is switched off again,
+    /// so that closing the bar actually closes it rather than starting a
+    /// negotiation with whatever might reopen it a moment later.
+    @Published private(set) var isZenMode = false
+
+    /// Seals or unseals the bar.
+    func setZenMode(_ enabled: Bool) {
+        guard enabled != isZenMode else {
+            return
+        }
+        isZenMode = enabled
+        diagLog.info("Zen mode \(enabled ? "on" : "off")")
+        if enabled {
+            showOnHoverAllowed = false
+            for section in sections where !section.name.isVisible {
+                section.hide()
+            }
+        } else {
+            showOnHoverAllowed = true
+        }
+    }
+
+    /// Toggles ``isZenMode``.
+    func toggleZenMode() {
+        setZenMode(!isZenMode)
+    }
+
     /// Timestamp of the last time a section was shown.
     private(set) var lastShowTimestamp: ContinuousClock.Instant?
 
@@ -689,6 +720,21 @@ final class MenuBarManager: ObservableObject {
             menu.addItem(.separator())
         }
 
+        let zenItem = NSMenuItem(
+            title: isZenMode
+                ? String(localized: "Turn Off Zen Mode")
+                : String(localized: "Zen Mode"),
+            action: #selector(toggleZenModeFromMenu),
+            keyEquivalent: ""
+        )
+        zenItem.image = NSImage(
+            systemSymbolName: isZenMode ? "moon.fill" : "moon",
+            accessibilityDescription: "Zen Mode"
+        )
+        zenItem.state = isZenMode ? .on : .off
+        zenItem.target = self
+        menu.addItem(zenItem)
+
         let editAppearanceItem = NSMenuItem(
             title: String(localized: "Edit Menu Bar Appearance…"),
             action: #selector(showAppearanceEditorPanel),
@@ -752,6 +798,10 @@ final class MenuBarManager: ObservableObject {
         menu.addItem(SectionDropdownMenu.makeQuitItem())
 
         menu.popUp(positioning: nil, at: point, in: nil)
+    }
+
+    @objc private func toggleZenModeFromMenu() {
+        toggleZenMode()
     }
 
     @objc private func applyProfileFromMenu(_ menuItem: NSMenuItem) {
