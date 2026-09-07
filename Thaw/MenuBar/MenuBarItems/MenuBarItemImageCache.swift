@@ -291,7 +291,11 @@ final class MenuBarItemImageCache: ObservableObject {
             // is the icons appearing too small after switching monitors and
             // then correcting themselves much later.
             screenChangePublisher
-                .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+                // Short, because this debounce is time the user spends
+                // looking at images sized for the display they just left.
+                // Long enough only to coalesce the burst of notifications a
+                // single display change sends.
+                .debounce(for: .milliseconds(120), scheduler: DispatchQueue.main)
                 .sink { [weak self] _ in
                     guard let self else { return }
                     self.currentUpdateTask?.cancel()
