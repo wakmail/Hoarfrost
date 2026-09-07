@@ -24,6 +24,32 @@ enum MouseHelpers {
     private static var cursorGeneration: UInt64 = 0
     private static var cursorIsHidden = false
     private static var lastGoodLocation: CGPoint?
+    private static var lastAcceptedMovementTimestamp: TimeInterval = 0
+    private static var ignoreMovementUntil: TimeInterval = 0
+    private static let syntheticMovementGrace: TimeInterval = 0.5
+    // Reserve the upper bits for recognition and the lower bits for barrier IDs.
+    static let syntheticEventSignature: Int64 = 0x4846_0000_0000_0000
+    private static let syntheticEventMask: Int64 = -0x0001_0000_0000_0000
+    private static var nextSyntheticEventID: Int64 = 0
+
+    static func nextSyntheticEventUserData() -> Int64 {
+        cursorLock.sync {
+            nextSyntheticEventID = (nextSyntheticEventID + 1) & ~syntheticEventMask
+            return syntheticEventSignature | nextSyntheticEventID
+        }
+    }
+
+    static func isSyntheticCursorEvent(_ event: CGEvent) -> Bool {
+        let userData = event.getIntegerValueField(.eventSourceUserData)
+        let sourcePID = event.getIntegerValueField(.eventSourceUnixProcessID)
+        return userData & syntheticEventMask == syntheticEventSignature ||
+            sourcePID == Int64(ProcessInfo.processInfo.processIdentifier)
+    }
+
+    private static func quarantineMovementLocked(caller: String) {
+        ignoreMovementUntil = ProcessInfo.processInfo.systemUptime + syntheticMovementGrace
+        diagLog.debug("CURSORTRACE movement quarantine by \(caller) until=\(ignoreMovementUntil) depth=\(activeCursorScopes.count)")
+    }
     @MainActor private static var cursorMovementMonitor: EventMonitor?
     private static var autoShowWorkItem: DispatchWorkItem?
     private static let defaultWatchdogTimeout: DispatchTimeInterval = .seconds(1)
@@ -75,26 +101,51 @@ enum MouseHelpers {
         }
     }
 
-    /// Keeps the restore target current using real movement, including while
-    /// an operation has the cursor parked. Our clicks and drags never enter here.
+    /// Accepts fresh HID movement only outside cursor operations and their tail.
     @MainActor
     static func startMonitoringUserMovement() {
         guard cursorMovementMonitor == nil else { return }
         let monitor = EventMonitor.universal(for: .mouseMoved) { event in
-            if let point = event.cgEvent?.location {
-                cursorLock.sync {
-                    if isOnAnyDisplay(point) {
-                        lastGoodLocation = point
-                        diagLog.debug("CURSORTRACE user movement to \(point.x),\(point.y) depth=\(activeCursorScopes.count)")
-                    }
+            cursorLock.sync {
+                guard let cgEvent = event.cgEvent else {
+                    diagLog.debug("CURSORTRACE ignored movement reason=no CGEvent")
+                    return
                 }
+                let point = cgEvent.location
+                let source = cgEvent.getIntegerValueField(.eventSourceStateID)
+                let userData = cgEvent.getIntegerValueField(.eventSourceUserData)
+                let sourcePID = cgEvent.getIntegerValueField(.eventSourceUnixProcessID)
+                let now = ProcessInfo.processInfo.systemUptime
+                let reason: String?
+                if isSyntheticCursorEvent(cgEvent) {
+                    reason = "synthetic signature or process"
+                } else if !activeCursorScopes.isEmpty {
+                    reason = "active scope"
+                } else if now <= ignoreMovementUntil || event.timestamp <= ignoreMovementUntil {
+                    reason = "synthetic tail"
+                } else if source != Int64(CGEventSourceStateID.hidSystemState.rawValue) {
+                    reason = "non HID source"
+                } else if event.timestamp <= lastAcceptedMovementTimestamp || event.timestamp > now {
+                    reason = "invalid or old timestamp"
+                } else if !isOnAnyDisplay(point) {
+                    reason = "off display"
+                } else {
+                    reason = nil
+                }
+                if let reason {
+                    diagLog.debug("CURSORTRACE ignored movement to \(point.x),\(point.y) reason=\(reason) depth=\(activeCursorScopes.count) source=\(source) pid=\(sourcePID) userData=\(userData) timestamp=\(event.timestamp) now=\(now) cutoff=\(ignoreMovementUntil)")
+                    return
+                }
+                lastGoodLocation = point
+                lastAcceptedMovementTimestamp = event.timestamp
+                diagLog.debug("CURSORTRACE user movement to \(point.x),\(point.y) depth=\(activeCursorScopes.count) source=\(source) pid=\(sourcePID) userData=\(userData) timestamp=\(event.timestamp)")
             }
             return event
         }
         cursorMovementMonitor = monitor
         monitor.start()
         _ = captureRestorePoint()
-        diagLog.info("CURSORTRACE user movement monitor started")
+        diagLog.info("CURSORTRACE user movement monitor started grace=\(syntheticMovementGrace)s")
     }
 
     /// Returns the location of the mouse cursor in the coordinate
@@ -112,19 +163,22 @@ enum MouseHelpers {
         CGEvent(source: nil)?.location
     }
 
-    /// Reads the free position and checks ownership in one critical section.
+    /// Returns the trusted position, seeding it only before any cursor operation.
     static func captureRestorePoint() -> CGPoint? {
         cursorLock.sync { captureRestorePointLocked() }
     }
 
     /// Requires cursorLock, as do the other helpers with a Locked suffix.
     private static func captureRestorePointLocked() -> CGPoint? {
-        if activeCursorScopes.isEmpty,
+        // Later raw readings have no event provenance, even at depth zero.
+        // Only the filtered movement observer may update an existing target.
+        if lastGoodLocation == nil, nextScopeID == 0, ignoreMovementUntil == 0,
+           activeCursorScopes.isEmpty,
            let live = CGEvent(source: nil)?.location,
            isOnAnyDisplay(live)
         {
             lastGoodLocation = live
-            diagLog.debug("CURSORTRACE capture free position \(live.x),\(live.y)")
+            diagLog.debug("CURSORTRACE seed initial position \(live.x),\(live.y)")
         }
         return lastGoodLocation
     }
@@ -172,6 +226,7 @@ enum MouseHelpers {
                 restoreCursorLocked(caller: caller)
             }
             if activeCursorScopes.isEmpty {
+                quarantineMovementLocked(caller: "last scope closed")
                 revealCursorLocked()
             }
             diagLog.debug("CURSORTRACE scope ended id=\(scope.id) generation=\(cursorGeneration) depth=\(activeCursorScopes.count)")
@@ -224,11 +279,10 @@ enum MouseHelpers {
             return
         }
         diagLog.error("Cursor was left off screen at \(current.x), \(current.y); restoring to \(fallback.x), \(fallback.y)")
-        CGWarpMouseCursorPosition(fallback)
+        warpCursorLocked(to: fallback, caller: "off screen rescue")
     }
 
-    /// Moves the mouse cursor to the given point without generating
-    /// events.
+    /// Moves the cursor and quarantines any resulting movement notifications.
     ///
     /// - Parameter point: The point to move the cursor to in global
     ///   display coordinates.
@@ -268,6 +322,7 @@ enum MouseHelpers {
             diagLog.error("Cursor target \(point.x), \(point.y) is off screen; restoring to \(fallback.x), \(fallback.y) instead")
             target = fallback
         }
+        quarantineMovementLocked(caller: caller)
         let result = CGWarpMouseCursorPosition(target)
         if result != .success {
             diagLog.error("CGWarpMouseCursorPosition failed with error code \(result.rawValue)")
