@@ -449,7 +449,7 @@ final class MenuBarItemManager: ObservableObject {
         for section in appState?.menuBarManager.sections.map { $0.name } ?? MenuBarSection.Name.allCases {
             // Start with current identifiers for this section (only primary items)
             var identifiers = cache[section]
-                .filter { !$0.isControlItem && $0.tag.instanceIndex == 0 }
+                .filter { !$0.isControlItem && $0.tag.instanceIndex == 0 && !$0.tag.title.isEmpty }
                 .map(\.uniqueIdentifier)
 
             // Add identifiers from saved sections that are NOT currently in the cache
