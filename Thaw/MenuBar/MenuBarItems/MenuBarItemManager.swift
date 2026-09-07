@@ -190,11 +190,48 @@ final class MenuBarItemManager: ObservableObject {
     /// so an unresponsive item cannot hold the move lock in a retry storm.
     private var moveCooldowns = [String: ContinuousClock.Instant]()
 
+    /// Consecutive failed move attempts per item, which set how long the
+    /// next cooldown lasts.
+    private var moveFailureCounts = [String: Int]()
+
     /// Records a move failure caused by the item not responding.
     private func recordMoveFailure(for item: MenuBarItem) {
-        moveCooldowns[item.tag.tagIdentifier] = ContinuousClock.now.advanced(by: .seconds(60))
-        MenuBarItemManager.diagLog.warning("Cooling down moves of \(item.logString) for 60 seconds after repeated timeouts")
+        // Back off further each time rather than retrying at a fixed
+        // minute forever.
+        //
+        // Some items never answer a synthetic move at all, and an item
+        // whose window title is unreadable is taken for a new one on every
+        // pass, so it is picked up, tried, and timed out again as long as
+        // it exists. At a flat sixty seconds that is a couple of seconds of
+        // held move lock every minute for the rest of the session, plus an
+        // error in the log each time, none of which is going to come good.
+        //
+        // Doubling up to half an hour keeps the cost of a hopeless item
+        // near zero while still retrying occasionally, which matters
+        // because the reason an item will not move is often temporary: a
+        // busy app, a slow launch, a display change mid-move.
+        let identifier = item.tag.tagIdentifier
+        let failures = (moveFailureCounts[identifier] ?? 0) + 1
+        moveFailureCounts[identifier] = failures
+        let seconds = min(Self.baseMoveCooldownSeconds << (failures - 1), Self.maximumMoveCooldownSeconds)
+        moveCooldowns[identifier] = ContinuousClock.now.advanced(by: .seconds(seconds))
+        MenuBarItemManager.diagLog.warning(
+            "Cooling down moves of \(item.logString) for \(seconds) seconds after \(failures) failed attempt(s)"
+        )
     }
+
+    /// Forgets the failure history for an item that has just moved.
+    private func clearMoveFailures(for item: MenuBarItem) {
+        let identifier = item.tag.tagIdentifier
+        guard moveFailureCounts.removeValue(forKey: identifier) != nil else { return }
+        moveCooldowns.removeValue(forKey: identifier)
+    }
+
+    /// The first cooldown applied after a move fails.
+    private static let baseMoveCooldownSeconds = 60
+
+    /// The ceiling the cooldown doubles up to.
+    private static let maximumMoveCooldownSeconds = 1800
 
     /// Whether automatic flows should leave this item alone for now. User
     /// initiated actions ignore the cooldown.
@@ -2460,6 +2497,7 @@ extension MenuBarItemManager {
                 if try await itemHasCorrectPosition(item: item, for: destination, on: resolvedDisplayID) {
                     MenuBarItemManager.diagLog.debug("Attempt \(n) succeeded and verified, finished with move")
                     // Validate that item didn't get stuck when moving to hidden section
+                    clearMoveFailures(for: item)
                     await validateItemPositionAfterMove(item: item, destination: destination, on: resolvedDisplayID)
                     return
                 }
