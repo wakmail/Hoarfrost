@@ -2678,6 +2678,23 @@ extension MenuBarItemManager {
         /// tightest value that works.
         private let graceInterval: TimeInterval = 4
 
+        /// Whether the owning app has been frontmost at any point since the
+        /// item was revealed.
+        ///
+        /// This is what tells "still open" apart from "left open". An app
+        /// that has taken focus and lost it again has been finished with,
+        /// whatever it left on screen. An app that never took focus has
+        /// not, so its window being up is still the only signal there is.
+        private var appBecameActive = false
+
+        /// The longest an item is held out on the strength of a window that
+        /// is merely present, with the app never having come forward.
+        ///
+        /// Only reached by an app that answers a click with a window it
+        /// then leaves up without ever taking focus. Nothing about that
+        /// says the user is still reading it, so it needs an end.
+        private let maximumHoldInterval: TimeInterval = 120
+
         /// A Boolean value that indicates whether the menu bar item's
         /// interface is showing.
         var isShowingInterface: Bool {
@@ -2687,6 +2704,7 @@ extension MenuBarItemManager {
                 isShowingInterface(\(self.tag.tagIdentifier)) = \(answer): \
                 pid=\(self.sourcePID) active=\(MenuBarItemManager.appIsActive(pid: self.sourcePID)) \
                 tracked=\(self.shownInterfaceWindow.map { String($0.windowID) } ?? "none") \
+                wasActive=\(self.appBecameActive) \
                 age=\(Int(Date.now.timeIntervalSince(self.firstShownDate) * 1000))ms
                 """
             )
@@ -2696,77 +2714,50 @@ extension MenuBarItemManager {
         private var isShowingInterfaceUncached: Bool {
             // Still the app you are in front of, so you are still using it,
             // whatever its windows happen to be doing.
-            //
-            // This has to come before the window checks rather than after
-            // them, because the window checks do not merely fail to prove
-            // the interface is up, they actively conclude it is gone. An
-            // app that swaps one window for another, or sends the window we
-            // captured off screen, reads as closed within a frame or two,
-            // and with a short grace the item was pulled back under the
-            // user about a second after they opened it.
             if MenuBarItemManager.appIsActive(pid: sourcePID) {
+                appBecameActive = true
                 return true
             }
 
-            // Then hold the item out for the grace period no matter what the
-            // windows say.
+            // Then hold the item out for the grace period no matter what
+            // the windows say.
             //
-            // This has to come before the tracked window checks, not after
-            // them. Revealing an item from the Hoarfrost bar leaves us
-            // frontmost while the app puts its window up without taking
-            // focus, so for the first moments the app is not active and its
-            // window is not one the checks below call showing. Landing in
-            // those checks that early is what rehid the item about a tenth
-            // of a second after it appeared. The grace is the window in
-            // which the user gets to click into what they just opened.
+            // Revealing an item from the Hoarfrost bar leaves us frontmost
+            // while the app puts its window up without taking focus, so for
+            // the first moments the app is not active and its window may
+            // not be one the checks below call showing. The grace is the
+            // window in which the user reaches for what they just opened.
             if Date.now.timeIntervalSince(firstShownDate) < graceInterval {
                 return true
             }
 
-            // First check the tracked popup window — this is the most
-            // reliable signal when available.
+            // The app had focus and does not now, so the user has moved on.
+            //
+            // This is the question the window level used to stand in for,
+            // badly. Menu level windows close themselves and status level
+            // ones may not, but which level an app chose says nothing about
+            // whether its panel is still wanted, and judging by level meant
+            // either holding items out for good or dropping them the moment
+            // the grace ran out. Focus answers it directly: an app that has
+            // been in front and is no longer has been left.
+            if appBecameActive {
+                return false
+            }
+
+            // Never having come forward, the app is judged on its window
+            // alone, up to a limit.
+            if Date.now.timeIntervalSince(firstShownDate) >= maximumHoldInterval {
+                return false
+            }
+
             if let window = shownInterfaceWindow,
                let current = WindowInfo(windowID: window.windowID)
             {
-                // A real menu vanishes when it is dismissed, so its being
-                // on screen is the whole signal.
-                //
-                // Status level is deliberately not in this set, though it
-                // used to be. A menu closes itself; a status level panel is
-                // just as often one the app leaves up for as long as it
-                // likes, and treating presence as use meant the item stayed
-                // out forever once such a panel appeared. It falls through
-                // to the frontmost test below with every other window.
-                if current.layer == CGWindowLevelForKey(.popUpMenuWindow)
-                    || current.layer == CGWindowLevelForKey(.popUpMenuWindow) - 1
-                    || current.layer == CGWindowLevelForKey(.mainMenuWindow)
-                {
-                    return current.isOnScreen
-                }
-                // An ordinary window has to be both on screen and in front.
-                //
-                // On screen alone is not enough here, however tempting: an
-                // app like Marklet answers the click with a document window
-                // it simply leaves up, so on screen never becomes false and
-                // the item would stay out until the bar was clicked by
-                // hand. Being frontmost is what actually tracks whether the
-                // user is still in it, and the grace above already covers
-                // the moments before they click into it.
-                if let app = current.owningApplication {
-                    return app.isActive && current.isOnScreen
-                }
                 return current.isOnScreen
             }
 
-            // The tracked window is gone or was never captured. During the
-            // grace period, assume the interface is still showing to give
-            // apps with nonstandard windows time to create them.
-            if Date.now.timeIntervalSince(firstShownDate) < graceInterval {
-                return true
-            }
-
-            // Grace period expired and no tracked window. Check whether the
-            // app has any visible popup or overlay window that we missed.
+            // No window was ever captured. Check whether the app has a
+            // popup or overlay on screen that the capture missed.
             return appHasVisiblePopup()
         }
 
