@@ -2486,9 +2486,19 @@ extension MenuBarItemManager {
         //
         // Real movement arrives as `.mouseMoved`; our own events are
         // clicks and drags, so they do not trip this.
-        let userTookTheCursor = OSAllocatedUnfairLock(initialState: false)
+        //
+        // What is recorded is where the user last pointed, not merely that
+        // they pointed somewhere. Simply skipping the warp is not an
+        // option: our own events have taken the cursor off to the far side
+        // of the coordinate space by then, so leaving it there strands it
+        // in a corner. The cursor is always placed, the only question is
+        // whether it belongs at the position captured before the move or
+        // at the one the user has since asked for.
+        let userCursorTarget = OSAllocatedUnfairLock<CGPoint?>(initialState: nil)
         let cursorWatch = EventMonitor.universal(for: .mouseMoved) { event in
-            userTookTheCursor.withLock { $0 = true }
+            if let location = event.cgEvent?.location {
+                userCursorTarget.withLock { $0 = location }
+            }
             return event
         }
         cursorWatch.start()
@@ -2496,10 +2506,10 @@ extension MenuBarItemManager {
         MouseHelpers.hideCursor(watchdogTimeout: watchdogTimeout)
         defer {
             cursorWatch.stop()
-            if !userTookTheCursor.withLock({ $0 }) {
-                MouseHelpers.warpCursor(to: mouseLocation)
+            if let moved = userCursorTarget.withLock({ $0 }) {
+                MouseHelpers.warpCursor(to: moved)
             } else {
-                MenuBarItemManager.diagLog.debug("Leaving the cursor where the user moved it")
+                MouseHelpers.warpCursor(to: mouseLocation)
             }
             MouseHelpers.showCursor()
         }
@@ -2507,6 +2517,21 @@ extension MenuBarItemManager {
         let maxAttempts = max(1, maxMoveAttempts)
         for n in 1 ... maxAttempts {
             guard !Task.isCancelled else {
+                throw EventError.cannotComplete
+            }
+            // Stop retrying the moment the user starts moving the mouse.
+            //
+            // Every attempt takes the cursor away again, so a retry ladder
+            // run while the user is moving is a tug of war they can feel:
+            // the pointer is theirs, then ours, then theirs, for as long as
+            // the attempts last. The first attempt is worth finishing since
+            // it is usually already in flight, but there is no case for
+            // spending the rest fighting live input. Whatever failed here
+            // gets picked up by the next pass, when the pointer is still.
+            if n > 1, userCursorTarget.withLock({ $0 }) != nil {
+                MenuBarItemManager.diagLog.debug(
+                    "Giving up remaining move attempts for \(item.logString): the user is moving the mouse"
+                )
                 throw EventError.cannotComplete
             }
             do {
