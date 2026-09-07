@@ -748,6 +748,9 @@ final class MenuBarManager: ObservableObject {
         settingsItem.image = NSImage(systemSymbolName: "gear", accessibilityDescription: "Settings")
         menu.addItem(settingsItem)
 
+        // Last, the way a quit item is everywhere else.
+        menu.addItem(SectionDropdownMenu.makeQuitItem())
+
         menu.popUp(positioning: nil, at: point, in: nil)
     }
 

@@ -296,7 +296,11 @@ final class MenuBarSection {
         if name.isVisible, let appState, menuBarManager.sectionsConfiguration.iceIconOpensCombinedMenu {
             // One icon, every section: a dropdown with a submenu per section.
             menuBarManager.iceBarPanel.close()
-            let combined = SectionDropdownMenu.makeCombinedMenu(appState: appState)
+            // Presented on its own, so it carries Settings and Quit.
+            let combined = SectionDropdownMenu.makeCombinedMenu(
+                appState: appState,
+                includesAppCommands: true
+            )
             combinedMenuBuilders = combined.builders
             controlItem.present(combined.menu)
             return

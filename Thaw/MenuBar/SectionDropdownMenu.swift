@@ -159,7 +159,14 @@ final class SectionDropdownMenu: NSObject {
     /// Returns the per section builders alongside the menu; the caller must
     /// keep them alive while the menu is open because menu items hold their
     /// targets weakly.
-    static func makeCombinedMenu(appState: AppState) -> (menu: NSMenu, builders: [SectionDropdownMenu]) {
+    /// - Parameter includesAppCommands: Whether to append Settings and
+    ///   Quit. Only for when this menu is presented on its own, since the
+    ///   right click menu folds these items into a menu that carries its
+    ///   own copies further down.
+    static func makeCombinedMenu(
+        appState: AppState,
+        includesAppCommands: Bool = false
+    ) -> (menu: NSMenu, builders: [SectionDropdownMenu]) {
         let menu = NSMenu(title: Constants.displayName)
         menu.autoenablesItems = false
         var builders = [SectionDropdownMenu]()
@@ -178,26 +185,35 @@ final class SectionDropdownMenu: NSObject {
 
         // With the icon hidden this menu is the only handle on the app, so
         // it has to carry the way out.
-        menu.addItem(.separator())
-        let settingsItem = NSMenuItem(
-            title: String(localized: "\(Constants.displayName) Settings…"),
-            action: #selector(AppDelegate.openSettingsWindow),
-            keyEquivalent: ","
-        )
-        settingsItem.keyEquivalentModifierMask = .command
-        settingsItem.target = NSApp.delegate
-        menu.addItem(settingsItem)
+        if includesAppCommands {
+            menu.addItem(.separator())
+            let settingsItem = NSMenuItem(
+                title: String(localized: "\(Constants.displayName) Settings…"),
+                action: #selector(AppDelegate.openSettingsWindow),
+                keyEquivalent: ","
+            )
+            settingsItem.keyEquivalentModifierMask = .command
+            settingsItem.image = NSImage(systemSymbolName: "gear", accessibilityDescription: "Settings")
+            settingsItem.target = NSApp.delegate
+            menu.addItem(settingsItem)
+            menu.addItem(makeQuitItem())
+        }
 
+        return (menu, builders)
+    }
+
+    /// A Quit item, so that every menu that is a user's only handle on the
+    /// app ends the same way.
+    static func makeQuitItem() -> NSMenuItem {
         let quitItem = NSMenuItem(
             title: String(localized: "Quit \(Constants.displayName)"),
             action: #selector(NSApp.terminate),
             keyEquivalent: "q"
         )
         quitItem.keyEquivalentModifierMask = .command
+        quitItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: "Quit")
         quitItem.target = NSApp
-        menu.addItem(quitItem)
-
-        return (menu, builders)
+        return quitItem
     }
 
     /// The captured image of the item scaled to row height, falling back to
