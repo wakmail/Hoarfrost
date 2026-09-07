@@ -4230,7 +4230,16 @@ extension MenuBarItemManager {
         }
 
         let movableItems = candidates.filter { candidate in
-            (namespaceCounts[candidate.tag.namespace.description] ?? 0) == 1
+            // Nameless items are the twins a second display creates, one
+            // per display, with the copies belonging to the display that
+            // does not own the menu bar reporting no window name. They
+            // cannot be identified, cannot be recorded, and the move always
+            // fails because that window is not the one hosting the item
+            // here. The relocate path already leaves them alone; the
+            // planner was still trying, and every attempt hides the cursor
+            // and holds the move lock on the way to failing.
+            !candidate.tag.title.isEmpty
+                && (namespaceCounts[candidate.tag.namespace.description] ?? 0) == 1
                 && !temporarilyShownItemContexts.contains { context in
                     context.tag.tagIdentifier == candidate.tag.tagIdentifier
                 }
