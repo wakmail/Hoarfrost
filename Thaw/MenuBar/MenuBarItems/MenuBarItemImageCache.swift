@@ -283,6 +283,27 @@ final class MenuBarItemImageCache: ObservableObject {
                 .map { _ in () }
                 .eraseToAnyPublisher()
 
+            // A display change is not the same as the images merely being
+            // old. Menu bars differ in height between displays, so every
+            // captured image is now the wrong size for the bar it will be
+            // drawn in, and the ordinary path would leave them that way
+            // until something happened to be on screen to show them. That
+            // is the icons appearing too small after switching monitors and
+            // then correcting themselves much later.
+            screenChangePublisher
+                .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    self.currentUpdateTask?.cancel()
+                    self.currentUpdateTask = Task {
+                        await self.updateCache(
+                            sections: MenuBarSection.Name.allCases,
+                            ignoringPresentation: true
+                        )
+                    }
+                }
+                .store(in: &c)
+
             Publishers.MergeMany([
                 spaceChangePublisher,
                 screenChangePublisher,
@@ -1211,7 +1232,15 @@ final class MenuBarItemImageCache: ObservableObject {
     }
 
     /// Updates the cache for the given sections, if necessary.
-    func updateCache(sections: [MenuBarSection.Name], skipRecentMoveCheck: Bool = false) async {
+    /// - Parameter ignoringPresentation: Captures even when nothing is on
+    ///   screen to show the images. Used when the existing images are known
+    ///   to be wrong rather than merely old, since waiting for the bar to be
+    ///   opened would mean opening it onto stale images.
+    func updateCache(
+        sections: [MenuBarSection.Name],
+        skipRecentMoveCheck: Bool = false,
+        ignoringPresentation: Bool = false
+    ) async {
         guard let appState else {
             MenuBarItemImageCache.diagLog.debug("updateCache: appState is nil, skipping")
             return
@@ -1220,7 +1249,7 @@ final class MenuBarItemImageCache: ObservableObject {
         let isIceBarPresented = await appState.navigationState.isIceBarPresented
         let isSearchPresented = await appState.navigationState.isSearchPresented
 
-        if !isIceBarPresented, !isSearchPresented {
+        if !ignoringPresentation, !isIceBarPresented, !isSearchPresented {
             let isAppFrontmost = await appState.navigationState.isAppFrontmost
             let isSettingsPresented = await appState.navigationState.isSettingsPresented
             let settingsNavID = await appState.navigationState.settingsNavigationIdentifier
