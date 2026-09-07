@@ -3295,14 +3295,20 @@ extension MenuBarItemManager {
         MenuBarItemManager.diagLog.debug("Temporarily showing \(item.logString) on display \(resolvedDisplayID)")
 
         do {
-            if fastPath {
-                // Single attempt move — the first attempt always repositions the item
-                // close enough. Skipping retries eliminates the visible jitter from
-                // the 8-attempt retry loop with exponentially increasing timeouts.
-                try await move(item: item, to: moveDestination, on: resolvedDisplayID, skipInputPause: true, maxMoveAttempts: 3)
-            } else {
-                try await move(item: item, to: moveDestination, on: resolvedDisplayID, skipInputPause: true)
-            }
+            // Revealing is the one move the user is waiting on, so it gets
+            // the full budget on either path.
+            //
+            // The fast path was capped to keep a failing retry ladder from
+            // showing as jitter, which cost a reveal that needed a second
+            // guess: upstream traced silent reveal failures to exactly that
+            // cap. The reason retries were expensive here is gone anyway.
+            // Nearly every failure was a nameless twin from a second
+            // display that could never move, and now that those are left
+            // alone the failure rate is close to nothing, so the budget is
+            // a net that almost never has to catch anything. Retries only
+            // cost time on the attempts that actually run, and they stop
+            // early if the user starts moving the mouse.
+            try await move(item: item, to: moveDestination, on: resolvedDisplayID, skipInputPause: true)
         } catch {
             MenuBarItemManager.diagLog.error("Error showing item: \(error)")
             pendingRelocations.removeValue(forKey: tagIdentifier)
