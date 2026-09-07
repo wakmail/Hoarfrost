@@ -116,6 +116,10 @@ final class MenuBarItemImageCache: ObservableObject {
     /// that does not move it costs nothing.
     private var lastMenuBarDisplayID: CGDirectDisplayID?
 
+    /// The display and menu bar height last seen together, which is what a
+    /// capture is only valid for.
+    private var lastMenuBarSignature: String?
+
     /// The currently running live-refresh task, if any.
     private var liveRefreshTask: Task<Void, Never>?
 
@@ -307,12 +311,25 @@ final class MenuBarItemImageCache: ObservableObject {
                 .debounce(for: .milliseconds(120), scheduler: DispatchQueue.main)
                 .sink { [weak self] _ in
                     guard let self else { return }
+                    // The height is the thing that actually invalidates a
+                    // capture, and it is read from the screen the pointer is
+                    // on rather than from the active menu bar display,
+                    // because that lookup falls back to the main display
+                    // whenever the window server does not answer, and a
+                    // value that never changes is a trigger that never
+                    // fires.
                     let displayID = Bridging.getActiveMenuBarDisplayID()
-                    guard displayID != self.lastMenuBarDisplayID else { return }
-                    self.lastMenuBarDisplayID = displayID
+                    let height = NSScreen.screenWithMouse?.getMenuBarHeightEstimate()
+                    let signature = "\(displayID.map(String.init) ?? "?"):\(height.map { String(format: "%.1f", $0) } ?? "?")"
                     MenuBarItemImageCache.diagLog.debug(
-                        "Menu bar moved to display \(displayID.map(String.init) ?? "unknown"), recapturing"
+                        "Menu bar signature now \(signature), was \(self.lastMenuBarSignature ?? "none")"
                     )
+                    guard signature != self.lastMenuBarSignature else { return }
+                    let hadPrevious = self.lastMenuBarSignature != nil
+                    self.lastMenuBarSignature = signature
+                    self.lastMenuBarDisplayID = displayID
+                    guard hadPrevious else { return }
+                    MenuBarItemImageCache.diagLog.debug("Menu bar moved, recapturing")
                     self.currentUpdateTask?.cancel()
                     self.currentUpdateTask = Task {
                         await self.updateCache(
