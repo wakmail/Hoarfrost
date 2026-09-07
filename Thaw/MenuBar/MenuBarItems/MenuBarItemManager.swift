@@ -736,6 +736,7 @@ final class MenuBarItemManager: ObservableObject {
     func performSetup(with appState: AppState) async {
         MenuBarItemManager.diagLog.debug("performSetup: starting MenuBarItemManager setup")
         self.appState = appState
+        MouseHelpers.startMonitoringUserMovement()
         loadKnownItemIdentifiers()
         loadPinnedBundleIDs()
         loadPendingRelocations()
@@ -1706,9 +1707,9 @@ extension MenuBarItemManager {
         timeout: Duration,
         repeating count: Int = 1
     ) async throws {
-        MouseHelpers.hideCursor()
+        let cursorScope = MouseHelpers.hideCursor()
         defer {
-            MouseHelpers.showCursor()
+            MouseHelpers.showCursor(cursorScope)
         }
 
         guard
@@ -1861,9 +1862,9 @@ extension MenuBarItemManager {
         timeout: Duration,
         repeating count: Int = 1
     ) async throws {
-        MouseHelpers.hideCursor()
+        let cursorScope = MouseHelpers.hideCursor()
         defer {
-            MouseHelpers.showCursor()
+            MouseHelpers.showCursor(cursorScope)
         }
 
         guard
@@ -2214,9 +2215,9 @@ extension MenuBarItemManager {
         initialOrigin: CGPoint,
         timeout: Duration
     ) async throws -> CGPoint {
-        MouseHelpers.hideCursor()
+        let cursorScope = MouseHelpers.hideCursor()
         defer {
-            MouseHelpers.showCursor()
+            MouseHelpers.showCursor(cursorScope)
         }
         let responseTask = Task.detached {
             while true {
@@ -2254,7 +2255,7 @@ extension MenuBarItemManager {
     }
 
     /// Creates and posts a series of events to move a menu bar item
-    /// to the given destination.
+    /// to the given destination. The caller must hold eventSemaphore.
     ///
     /// - Parameters:
     ///   - item: The menu bar item to move.
@@ -2262,28 +2263,10 @@ extension MenuBarItemManager {
     private func postMoveEvents(
         item: MenuBarItem,
         destination: MoveDestination,
-        on displayID: CGDirectDisplayID,
-        warpCursorAfter: Bool = true
+        on displayID: CGDirectDisplayID
     ) async throws {
-        do {
-            // Patient: a click or move queued behind a multi item rehide can
-            // legitimately wait several seconds. Running late beats failing.
-            try await eventSemaphore.wait(timeout: .seconds(20))
-        } catch is SimpleSemaphore.TimeoutError {
-            // Never signal here: this task does not hold the semaphore, and
-            // injecting a permit lets two operations move items at once,
-            // which is where the stall cascades came from.
-            MenuBarItemManager.diagLog.error("eventSemaphore timed out in postMoveEvents; giving up without touching the lock")
-            throw EventError.cannotComplete
-        }
-        defer { Task.detached { [eventSemaphore] in await eventSemaphore.signal() } }
-
         var itemOrigin = try await getCurrentBounds(for: item).origin
         let targetPoints = try await getTargetPoints(forMoving: item, to: destination, on: displayID)
-        // Capture mouse location only when this call owns the cursor warp.
-        // When called from move(), the outer move() handles the single warp
-        // at the end of all attempts so the cursor doesn't oscillate per attempt.
-        let mouseLocation: CGPoint? = warpCursorAfter ? try getMouseLocation() : nil
         let source = try getEventSource()
 
         try permitLocalEvents()
@@ -2309,12 +2292,9 @@ extension MenuBarItemManager {
         MenuBarItemManager.diagLog.debug("Move operation timeout: \(timeout)")
 
         lastMoveOperationTimestamp = .now
-        MouseHelpers.hideCursor()
+        let cursorScope = MouseHelpers.hideCursor()
         defer {
-            if let mouseLocation {
-                MouseHelpers.warpCursor(to: mouseLocation)
-            }
-            MouseHelpers.showCursor()
+            MouseHelpers.showCursor(cursorScope)
             lastMoveOperationTimestamp = .now
             updateMoveOperationTimeout(timeout, for: item)
         }
@@ -2477,11 +2457,29 @@ extension MenuBarItemManager {
             return
         }
 
+        do {
+            // Patient: a click or move queued behind a multi item rehide can
+            // legitimately wait several seconds. Running late beats failing.
+            try await eventSemaphore.wait(timeout: .seconds(20))
+        } catch is SimpleSemaphore.TimeoutError {
+            // Never signal here: this task does not hold the semaphore, and
+            // injecting a permit lets two operations move items at once,
+            // which is where the stall cascades came from.
+            MenuBarItemManager.diagLog.error("eventSemaphore timed out in move; giving up without touching the lock")
+            throw EventError.cannotComplete
+        }
+        var ownsEventSemaphore = true
+        defer {
+            if ownsEventSemaphore {
+                Task.detached { [eventSemaphore] in await eventSemaphore.signal() }
+            }
+        }
+
         // Capture the original cursor position once so the cursor is warped
         // back to it a single time after all attempts, rather than after each
         // individual attempt (which caused the cursor to oscillate many times
         // during a layout reset when items required multiple attempts).
-        let mouseLocation = try getMouseLocation()
+        _ = try getMouseLocation()
 
         // Give the cursor back only if the user has not claimed it first.
         //
@@ -2514,16 +2512,15 @@ extension MenuBarItemManager {
         }
         cursorWatch.start()
 
-        MouseHelpers.hideCursor(watchdogTimeout: watchdogTimeout)
-        defer {
+        let cursorScope = MouseHelpers.hideCursor(watchdogTimeout: watchdogTimeout)
+        var cursorScopeFinished = false
+        func finishCursorScope() {
+            guard !cursorScopeFinished else { return }
+            cursorScopeFinished = true
             cursorWatch.stop()
-            if let moved = userCursorTarget.withLock({ $0 }) {
-                MouseHelpers.warpCursor(to: moved)
-            } else {
-                MouseHelpers.warpCursor(to: mouseLocation)
-            }
-            MouseHelpers.showCursor()
+            MouseHelpers.showCursor(cursorScope, restoring: true)
         }
+        defer { finishCursorScope() }
 
         let maxAttempts = max(1, maxMoveAttempts)
         for n in 1 ... maxAttempts {
@@ -2553,14 +2550,17 @@ extension MenuBarItemManager {
                 try await postMoveEvents(
                     item: item,
                     destination: destination,
-                    on: resolvedDisplayID,
-                    warpCursorAfter: false // move() owns the single warp in its defer
+                    on: resolvedDisplayID
                 )
                 // Verify the item actually reached the correct position.
                 if try await itemHasCorrectPosition(item: item, for: destination, on: resolvedDisplayID) {
                     MenuBarItemManager.diagLog.debug("Attempt \(n) succeeded and verified, finished with move")
                     // Validate that item didn't get stuck when moving to hidden section
                     clearMoveFailures(for: item)
+                    // Recovery can call move again, so give up ownership first.
+                    finishCursorScope()
+                    ownsEventSemaphore = false
+                    await eventSemaphore.signal()
                     await validateItemPositionAfterMove(item: item, destination: destination, on: resolvedDisplayID)
                     return
                 }
@@ -2587,7 +2587,10 @@ extension MenuBarItemManager {
             }
         }
 
-        // After all attempts, validate the final position
+        // Recovery can call move again, so give up ownership first.
+        finishCursorScope()
+        ownsEventSemaphore = false
+        await eventSemaphore.signal()
         await validateItemPositionAfterMove(item: item, destination: destination, on: resolvedDisplayID)
     }
 }
@@ -2617,14 +2620,14 @@ extension MenuBarItemManager {
         do {
             try await eventSemaphore.wait(timeout: .seconds(20))
         } catch is SimpleSemaphore.TimeoutError {
-            // See postMoveEvents: never inject a signal this task does not own.
+            // See move: never inject a signal this task does not own.
             MenuBarItemManager.diagLog.error("eventSemaphore timed out in postClickEvents for \(item.logString); giving up without touching the lock")
             throw EventError.cannotComplete
         }
         defer { Task.detached { [eventSemaphore] in await eventSemaphore.signal() } }
 
         let clickPoint = try await getCurrentBounds(for: item).center
-        let mouseLocation = try getMouseLocation()
+        _ = try getMouseLocation()
         let source = try getEventSource()
 
         try permitLocalEvents()
@@ -2652,10 +2655,9 @@ extension MenuBarItemManager {
             throw EventError.eventCreationFailure(item)
         }
 
-        MouseHelpers.hideCursor()
+        let cursorScope = MouseHelpers.hideCursor()
         defer {
-            MouseHelpers.warpCursor(to: mouseLocation)
-            MouseHelpers.showCursor()
+            MouseHelpers.showCursor(cursorScope, restoring: true)
         }
 
         let eventStartTime = Date.now
@@ -3522,9 +3524,9 @@ extension MenuBarItemManager {
 
         MenuBarItemManager.diagLog.debug("Rehiding temporarily shown items")
 
-        MouseHelpers.hideCursor()
+        let cursorScope = MouseHelpers.hideCursor()
         defer {
-            MouseHelpers.showCursor()
+            MouseHelpers.showCursor(cursorScope)
         }
 
         while let context = currentContexts.popLast() {
@@ -4617,7 +4619,8 @@ extension MenuBarItemManager {
             if isMenuOpen {
                 MenuBarItemManager.diagLog.debug("Found open menu window: PID \(window.ownerPID), owner: \(window.ownerName as NSObject?), title: \(window.title ?? "nil"), isMenuRelated: \(window.isMenuRelated)")
             }
-            return isMenuOpen
+            // Visit every candidate so permanent windows age together.
+            result = result || isMenuOpen
         }
 
         MenuBarItemManager.diagLog.debug("Menu open check result: \(result)")
@@ -5270,9 +5273,8 @@ extension MenuBarItemManager {
         let isNotchedDisplay = activeScreen?.hasNotch == true && !useLCSOnNotched && appState.menuBarManager.sections.count == 3
 
         // Hide cursor for the entire profile apply to avoid visual jitter.
-        let savedCursorPosition = NSEvent.mouseLocation
-        MouseHelpers.hideCursor(watchdogTimeout: .seconds(30))
-        defer { MouseHelpers.showCursor() }
+        let cursorScope = MouseHelpers.hideCursor(watchdogTimeout: .seconds(30))
+        defer { MouseHelpers.showCursor(cursorScope) }
 
         // Helper: update profileSortedItemIdentifiers so re-sort detection
         // doesn't keep re-triggering for items already evaluated.
@@ -5636,14 +5638,6 @@ extension MenuBarItemManager {
             }
 
             MenuBarItemManager.diagLog.info("Profile layout: completed with \(movedCount) move(s)")
-        }
-
-        // Restore cursor to its original position.
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(savedCursorPosition) })
-            ?? NSScreen.main
-        if let screen {
-            let cgY = screen.frame.origin.y + screen.frame.height - savedCursorPosition.y
-            MouseHelpers.warpCursor(to: CGPoint(x: savedCursorPosition.x, y: cgY))
         }
 
         // Re-fetch items after moves and update the snapshot so the

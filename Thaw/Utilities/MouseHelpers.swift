@@ -6,6 +6,7 @@
 //  Copyright (Thaw) © 2026 Toni Förster
 //  Licensed under the GNU GPLv3
 
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -13,7 +14,17 @@ import Foundation
 enum MouseHelpers {
     private static let diagLog = DiagLog(category: "MouseHelpers")
     private static let cursorLock = DispatchQueue(label: "MouseHelpers.cursorLock")
-    private static var cursorHideCount = 0
+    /// Tokens remain owned until their scopes exit, including after recovery.
+    struct CursorScope {
+        fileprivate let id: UInt64
+    }
+
+    private static var nextScopeID: UInt64 = 0
+    private static var activeCursorScopes = Set<UInt64>()
+    private static var cursorGeneration: UInt64 = 0
+    private static var cursorIsHidden = false
+    private static var lastGoodLocation: CGPoint?
+    @MainActor private static var cursorMovementMonitor: EventMonitor?
     private static var autoShowWorkItem: DispatchWorkItem?
     private static let defaultWatchdogTimeout: DispatchTimeInterval = .seconds(1)
 
@@ -35,12 +46,13 @@ enum MouseHelpers {
     }
 
     private static func scheduleAutoShow(after timeout: DispatchTimeInterval = defaultWatchdogTimeout) {
+        let generation = cursorGeneration
         let workItem = DispatchWorkItem {
-            forceShowCursor(reason: "watchdog timeout")
+            forceShowCursor(generation: generation, reason: "watchdog timeout")
         }
         autoShowWorkItem?.cancel()
         autoShowWorkItem = workItem
-        diagLog.debug("Cursor watchdog scheduled for \(formattedTimeout(timeout))")
+        diagLog.debug("CURSORTRACE watchdog scheduled for \(formattedTimeout(timeout)) generation=\(generation)")
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: workItem)
     }
 
@@ -49,14 +61,40 @@ enum MouseHelpers {
         autoShowWorkItem = nil
     }
 
-    private static func forceShowCursor(reason: String) {
-        cursorLock.sync { cursorHideCount = 0 }
-        let result = CGDisplayShowCursor(CGMainDisplayID())
-        if result != .success {
-            diagLog.error("Force show cursor failed (reason: \(reason), error: \(result.rawValue))")
-        } else {
-            diagLog.info("Cursor force-shown (reason: \(reason))")
+    private static func forceShowCursor(generation: UInt64, reason: String) {
+        cursorLock.sync {
+            guard generation == cursorGeneration, cursorIsHidden else {
+                diagLog.info("CURSORTRACE ignored stale force show generation=\(generation) current=\(cursorGeneration)")
+                return
+            }
+            diagLog.info("CURSORTRACE force show reason=\(reason) generation=\(generation) depth=\(activeCursorScopes.count)")
+            // Revealing does not end outstanding scopes. They may still post
+            // events, so live cursor readings remain untrusted until they exit.
+            restoreCursorLocked(caller: reason)
+            revealCursorLocked()
         }
+    }
+
+    /// Keeps the restore target current using real movement, including while
+    /// an operation has the cursor parked. Our clicks and drags never enter here.
+    @MainActor
+    static func startMonitoringUserMovement() {
+        guard cursorMovementMonitor == nil else { return }
+        let monitor = EventMonitor.universal(for: .mouseMoved) { event in
+            if let point = event.cgEvent?.location {
+                cursorLock.sync {
+                    if isOnAnyDisplay(point) {
+                        lastGoodLocation = point
+                        diagLog.debug("CURSORTRACE user movement to \(point.x),\(point.y) depth=\(activeCursorScopes.count)")
+                    }
+                }
+            }
+            return event
+        }
+        cursorMovementMonitor = monitor
+        monitor.start()
+        _ = captureRestorePoint()
+        diagLog.info("CURSORTRACE user movement monitor started")
     }
 
     /// Returns the location of the mouse cursor in the coordinate
@@ -70,105 +108,109 @@ enum MouseHelpers {
     /// space used by `CoreGraphics`, with the origin at the top left
     /// of the screen.
     static var locationCoreGraphics: CGPoint? {
-        let point = CGEvent(source: nil)?.location
-        // Only trust a reading taken while the cursor is ours to read.
-        //
-        // While an operation has the cursor parked, this reports wherever
-        // our own synthetic events left it, which is a real coordinate on a
-        // real display and so indistinguishable from a genuine one. That is
-        // what made the guard against off screen points useless: a corner
-        // is a legal position.
-        if let point, isOnAnyDisplay(point), !isCursorParked {
-            lastGoodLocationLock.sync { lastGoodLocation = point }
-        }
-        return point
+        // Raw callers must not promote our synthetic event positions.
+        CGEvent(source: nil)?.location
     }
 
-    /// Whether an operation currently has the cursor parked.
-    private static var isCursorParked: Bool {
-        cursorLock.sync { cursorHideCount > 0 }
-    }
-
-    /// A position worth restoring the cursor to after an operation.
-    ///
-    /// Returns where the pointer actually is when nothing has it parked,
-    /// and otherwise the last place it was seen while free, because a
-    /// reading taken mid operation is our own events looking back at us.
+    /// Reads the free position and checks ownership in one critical section.
     static func captureRestorePoint() -> CGPoint? {
-        if !isCursorParked, let live = CGEvent(source: nil)?.location, isOnAnyDisplay(live) {
-            lastGoodLocationLock.sync { lastGoodLocation = live }
-            return live
-        }
-        return lastGoodLocationLock.sync { lastGoodLocation }
+        cursorLock.sync { captureRestorePointLocked() }
     }
 
-    /// The last cursor position seen somewhere visible.
-    ///
-    /// Kept so that a restore always has somewhere real to aim at, even
-    /// when the position it was given is not.
-    private static var lastGoodLocation: CGPoint?
-    private static let lastGoodLocationLock = DispatchQueue(label: "MouseHelpers.lastGoodLocation")
-
-    /// Hides the mouse cursor and increments the hide cursor count.
-    static func hideCursor(watchdogTimeout: DispatchTimeInterval? = nil) {
-        var shouldHide = false
-        cursorLock.sync {
-            cursorHideCount += 1
-            shouldHide = cursorHideCount == 1
+    /// Requires cursorLock, as do the other helpers with a Locked suffix.
+    private static func captureRestorePointLocked() -> CGPoint? {
+        if activeCursorScopes.isEmpty,
+           let live = CGEvent(source: nil)?.location,
+           isOnAnyDisplay(live)
+        {
+            lastGoodLocation = live
+            diagLog.debug("CURSORTRACE capture free position \(live.x),\(live.y)")
         }
-
-        guard shouldHide else { return }
-
-        let result = CGDisplayHideCursor(CGMainDisplayID())
-        if result != .success {
-            diagLog.error("CGDisplayHideCursor failed with error code \(result.rawValue)")
-            cursorLock.sync { cursorHideCount = 0 } // Reset on failure
-        } else {
-            scheduleAutoShow(after: watchdogTimeout ?? defaultWatchdogTimeout)
-        }
+        return lastGoodLocation
     }
 
-    /// Decrements the hide cursor count and shows the mouse cursor
-    /// if the count is `0`.
-    static func showCursor() {
-        var shouldShow = false
-        var wasAlreadyZero = false
+    /// Begins an individually owned park scope and captures before hiding.
+    static func hideCursor(watchdogTimeout: DispatchTimeInterval? = nil, caller: String = #function) -> CursorScope {
         cursorLock.sync {
-            if cursorHideCount > 0 {
-                cursorHideCount -= 1
-                shouldShow = cursorHideCount == 0
-            } else {
-                wasAlreadyZero = true
+            diagLog.info("CURSORTRACE hide by \(caller) at \(CGEvent(source: nil)?.location.debugDescription ?? "?") depth=\(activeCursorScopes.count)")
+            _ = captureRestorePointLocked()
+            let beginsGeneration = activeCursorScopes.isEmpty || !cursorIsHidden
+            nextScopeID += 1
+            let scope = CursorScope(id: nextScopeID)
+            activeCursorScopes.insert(scope.id)
+
+            if beginsGeneration {
+                cursorGeneration += 1
+                if cursorIsHidden {
+                    scheduleAutoShow(after: watchdogTimeout ?? defaultWatchdogTimeout)
+                }
             }
+            if !cursorIsHidden {
+                let result = CGDisplayHideCursor(CGMainDisplayID())
+                if result != .success {
+                    diagLog.error("CGDisplayHideCursor failed with error code \(result.rawValue)")
+                } else {
+                    cursorIsHidden = true
+                    scheduleAutoShow(after: watchdogTimeout ?? defaultWatchdogTimeout)
+                }
+            }
+            diagLog.debug("CURSORTRACE scope began id=\(scope.id) generation=\(cursorGeneration) depth=\(activeCursorScopes.count)")
+            return scope
         }
+    }
 
-        if wasAlreadyZero {
-            diagLog.debug("showCursor called with count already zero")
-            return
+    /// Ends only the supplied scope. Move and click owners restore even inside
+    /// a batch; nested event helpers restore when the last scope exits.
+    static func showCursor(_ scope: CursorScope, restoring: Bool = false, caller: String = #function) {
+        cursorLock.sync {
+            diagLog.info("CURSORTRACE show by \(caller) at \(CGEvent(source: nil)?.location.debugDescription ?? "?") depth=\(activeCursorScopes.count)")
+            guard activeCursorScopes.remove(scope.id) != nil else {
+                diagLog.info("CURSORTRACE ignored stale show id=\(scope.id) generation=\(cursorGeneration)")
+                return
+            }
+            if restoring || activeCursorScopes.isEmpty || !cursorIsHidden {
+                restoreCursorLocked(caller: caller)
+            }
+            if activeCursorScopes.isEmpty {
+                revealCursorLocked()
+            }
+            diagLog.debug("CURSORTRACE scope ended id=\(scope.id) generation=\(cursorGeneration) depth=\(activeCursorScopes.count)")
         }
+    }
 
-        guard shouldShow else { return }
+    private static func restoreCursorLocked(caller: String) {
+        let target: CGPoint
+        if let lastGoodLocation, isOnAnyDisplay(lastGoodLocation) {
+            target = lastGoodLocation
+        } else {
+            // The original display may have disconnected while we were parked.
+            let bounds = CGDisplayBounds(CGMainDisplayID())
+            target = CGPoint(x: bounds.midX, y: bounds.midY)
+            diagLog.info("CURSORTRACE restore using main display center by \(caller)")
+        }
+        warpCursorLocked(to: target, caller: caller)
+    }
 
+    private static func revealCursorLocked() {
         cancelAutoShow()
-
+        guard cursorIsHidden else { return }
         let result = CGDisplayShowCursor(CGMainDisplayID())
         if result != .success {
             diagLog.error("CGDisplayShowCursor failed with error code \(result.rawValue)")
-            // Don't reset count on failure to prevent imbalance
+            scheduleAutoShow()
+        } else {
+            cursorIsHidden = false
+            diagLog.info("CURSORTRACE cursor revealed generation=\(cursorGeneration) depth=\(activeCursorScopes.count)")
         }
-
-        // Whatever else went on, the pointer is about to be visible again,
-        // so it had better be somewhere the user can see it. This is the
-        // last line of defence rather than the plan: every path that parks
-        // the cursor is supposed to put it back itself, and this only
-        // catches the ones that did not, including any that time out or
-        // throw on the way.
-        rescueCursorIfOffScreen()
     }
 
     /// Puts the cursor back somewhere visible if it has been left off the
     /// edge of every display.
     static func rescueCursorIfOffScreen() {
+        cursorLock.sync { rescueCursorIfOffScreenLocked() }
+    }
+
+    private static func rescueCursorIfOffScreenLocked() {
         guard
             let current = CGEvent(source: nil)?.location,
             !isOnAnyDisplay(current)
@@ -176,7 +218,7 @@ enum MouseHelpers {
             return
         }
         guard
-            let fallback = lastGoodLocationLock.sync(execute: { lastGoodLocation }),
+            let fallback = lastGoodLocation,
             isOnAnyDisplay(fallback)
         else {
             return
@@ -190,7 +232,12 @@ enum MouseHelpers {
     ///
     /// - Parameter point: The point to move the cursor to in global
     ///   display coordinates.
-    static func warpCursor(to point: CGPoint) {
+    static func warpCursor(to point: CGPoint, caller: String = #function) {
+        cursorLock.sync { warpCursorLocked(to: point, caller: caller) }
+    }
+
+    private static func warpCursorLocked(to point: CGPoint, caller: String) {
+        diagLog.info("CURSORTRACE warp by \(caller) to \(point.x),\(point.y) from \(CGEvent(source: nil)?.location.debugDescription ?? "?")")
         // Refuse to put the cursor somewhere it cannot be seen.
         //
         // The positions handed to this are captured before an operation and
@@ -212,7 +259,7 @@ enum MouseHelpers {
         var target = point
         if !isOnAnyDisplay(target) {
             guard
-                let fallback = lastGoodLocationLock.sync(execute: { lastGoodLocation }),
+                let fallback = lastGoodLocation,
                 isOnAnyDisplay(fallback)
             else {
                 diagLog.error("Cursor target \(point.x), \(point.y) is off screen and there is no known good position to fall back on")
