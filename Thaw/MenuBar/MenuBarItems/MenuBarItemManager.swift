@@ -2471,9 +2471,36 @@ extension MenuBarItemManager {
         // individual attempt (which caused the cursor to oscillate many times
         // during a layout reset when items required multiple attempts).
         let mouseLocation = try getMouseLocation()
+
+        // Give the cursor back only if the user has not claimed it first.
+        //
+        // Posting a mouse event moves the real cursor, which is why it is
+        // hidden here and warped back afterwards. That is fine while the
+        // pointer is sitting still, and openly hostile when it is not: the
+        // position captured above goes stale the moment the user moves,
+        // and warping to it drags their pointer back to where it was when
+        // the move began. Dragging the pointer to another display is the
+        // worst case, because the display change starts a whole batch of
+        // moves, so the pointer is hauled back once per move for as long as
+        // the batch runs and the mouse feels like it has been taken away.
+        //
+        // Real movement arrives as `.mouseMoved`; our own events are
+        // clicks and drags, so they do not trip this.
+        let userTookTheCursor = OSAllocatedUnfairLock(initialState: false)
+        let cursorWatch = EventMonitor.universal(for: .mouseMoved) { event in
+            userTookTheCursor.withLock { $0 = true }
+            return event
+        }
+        cursorWatch.start()
+
         MouseHelpers.hideCursor(watchdogTimeout: watchdogTimeout)
         defer {
-            MouseHelpers.warpCursor(to: mouseLocation)
+            cursorWatch.stop()
+            if !userTookTheCursor.withLock({ $0 }) {
+                MouseHelpers.warpCursor(to: mouseLocation)
+            } else {
+                MenuBarItemManager.diagLog.debug("Leaving the cursor where the user moved it")
+            }
             MouseHelpers.showCursor()
         }
 
@@ -3761,10 +3788,16 @@ extension MenuBarItemManager {
         )
 
         do {
+            // Capped like the other automatic flows. Nobody asked for this
+            // move, and an item that will not answer costs a hidden cursor
+            // and a held move lock for every attempt it is given, which is
+            // most visible when a display change sets a whole batch of
+            // these going at once.
             try await move(
                 item: candidate,
                 to: destination,
-                skipInputPause: true
+                skipInputPause: true,
+                maxMoveAttempts: 3
             )
         } catch {
             MenuBarItemManager.diagLog.error("Failed to relocate \(candidate.logString): \(error)")
