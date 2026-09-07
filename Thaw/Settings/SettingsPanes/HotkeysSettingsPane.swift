@@ -32,6 +32,7 @@ struct HotkeysSettingsPane: View {
             IceSection("Other") {
                 hotkeyRecorder(forAction: .enableIceBar)
                 hotkeyRecorder(forAction: .toggleApplicationMenus)
+                hotkeyRecorder(forAction: .toggleZenMode)
             }
         }
     }
