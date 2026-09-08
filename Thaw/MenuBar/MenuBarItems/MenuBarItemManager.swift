@@ -739,6 +739,9 @@ final class MenuBarItemManager: ObservableObject {
     func performSetup(with appState: AppState) async {
         MenuBarItemManager.diagLog.debug("performSetup: starting MenuBarItemManager setup")
         self.appState = appState
+        // Protect the loaded layout before the first cache reads physical
+        // positions left behind by a previous process or a temporary reveal.
+        isInStartupSettling = true
         MouseHelpers.startMonitoringUserMovement()
         loadKnownItemIdentifiers()
         loadPinnedBundleIDs()
@@ -773,7 +776,6 @@ final class MenuBarItemManager: ObservableObject {
         // again. The cancelled task exits without touching shared state; this call
         // manages isInStartupSettling for the new period.
         startupSettlingTask?.cancel()
-        isInStartupSettling = true
         MenuBarItemManager.diagLog.debug("performSetup: startup settling period started (delay: \(preferredDelay))")
         // @MainActor ensures the flag flip and final cache call are never
         // interleaved with notification-triggered cache cycles between them.
