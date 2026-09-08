@@ -430,6 +430,9 @@ final class MenuBarItemManager: ObservableObject {
     /// Only tracks primary items (instanceIndex == 0); indexed items are skipped
     /// as they naturally position themselves next to their primary item.
     private func saveSectionOrder(from cache: ItemCache) {
+        // A cache taken while returning temporary items may still show their
+        // revealed positions. These are never permanent layout changes.
+        guard !rehideInProgress else { return }
         var newOrder = [String: [String]]()
 
         // Build a set of all identifiers currently in the cache (only primary items)
@@ -3494,8 +3497,10 @@ extension MenuBarItemManager {
             }
         }
 
-        var currentContexts = temporarilyShownItemContexts
-        temporarilyShownItemContexts.removeAll()
+        let rehidingContexts = temporarilyShownItemContexts
+        var currentContexts = rehidingContexts
+        // Keep the original locations available to concurrent cache and restore
+        // passes until every return attempt has finished.
 
         let items = await MenuBarItem.getMenuBarItems(option: .activeSpace)
         var failedContexts = [TemporarilyShownItemContext]()
@@ -3588,6 +3593,10 @@ extension MenuBarItemManager {
         }
 
         persistPendingRelocations()
+
+        temporarilyShownItemContexts.removeAll { context in
+            rehidingContexts.contains { $0 === context }
+        }
 
         // If force-hiding, we don't want to re-queue them for long delays.
         // We want them back in the section immediately or kept in context.
