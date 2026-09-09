@@ -423,104 +423,81 @@ final class MenuBarItemManager: ObservableObject {
         UserDefaults.standard.set(savedSectionOrder, forKey: key)
     }
 
-    /// Extracts the current per-section item order from the given cache and
-    /// persists it. Skips the write when the order has not changed.
-    /// For items currently in the cache, uses their current section.
-    /// For items from apps that are closed (not in cache), preserves their saved section.
-    /// Only tracks primary items (instanceIndex == 0); indexed items are skipped
-    /// as they naturally position themselves next to their primary item.
-    private func saveSectionOrder(from cache: ItemCache) {
-        // A cache taken while returning temporary items may still show their
-        // revealed positions. These are never permanent layout changes.
-        guard !rehideInProgress else { return }
-        var newOrder = [String: [String]]()
-
-        // Build a set of all identifiers currently in the cache (only primary items)
-        var allCurrentIdentifiers = Set<String>()
-        var allCurrentBaseIdentifiers = Set<String>()
-        for section in appState?.menuBarManager.sections.map { $0.name } ?? MenuBarSection.Name.allCases {
-            for item in cache[section] where !item.isControlItem && item.tag.instanceIndex == 0 {
-                let uniqueID = item.uniqueIdentifier
-                allCurrentIdentifiers.insert(uniqueID)
-                // Also track base identifier (without instanceIndex) to handle
-                // apps that change instanceIndex after restart
-                let baseID = "\(item.tag.namespace):\(item.tag.title)"
-                allCurrentBaseIdentifiers.insert(baseID)
-            }
+    /// Background observations can discover icons, but cannot move saved icons.
+    /// A native drag may update only the icon the user actually dragged.
+    private func saveSectionOrder(from cache: ItemCache, allowingChangesTo edited: Set<String> = []) {
+        guard !Task.isCancelled, !rehideInProgress else { return }
+        var newOrder = savedSectionOrder
+        func base(_ identifier: String) -> String {
+            identifier.split(separator: ":", maxSplits: 2).prefix(2).joined(separator: ":")
         }
-
-        for section in appState?.menuBarManager.sections.map { $0.name } ?? MenuBarSection.Name.allCases {
-            // Start with current identifiers for this section (only primary items)
-            var identifiers = cache[section]
-                .filter { !$0.isControlItem && $0.tag.instanceIndex == 0 && !$0.tag.title.isEmpty }
-                .map(\.uniqueIdentifier)
-
-            // Add identifiers from saved sections that are NOT currently in the cache
-            // (i.e., apps that are closed - preserve their saved section).
-            // Skip identifiers whose base (namespace:title) matches a current item,
-            // since that means the app restarted with a different instanceIndex.
-            for (sectionKeyString, savedIdentifiers) in savedSectionOrder {
-                guard sectionName(for: sectionKeyString) == section else { continue }
-                for (savedIndex, identifier) in savedIdentifiers.enumerated()
-                    where !allCurrentIdentifiers.contains(identifier)
-                {
-                    // Drop the readings taken while window titles were
-                    // degraded.
-                    //
-                    // An identifier is namespace:title, so an empty title is
-                    // a reading from a moment when the window server was not
-                    // answering with names. It can never match a live item
-                    // again, yet it was carried forward on every save, so
-                    // these accumulate without bound and hold slots in the
-                    // order that a real item should be occupying.
-                    let titlePart = identifier
-                        .split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
-                        .dropFirst()
-                        .first
-                    guard let titlePart, !titlePart.isEmpty else { continue }
-
-                    // Check if this identifier's base matches any current item
-                    let baseID = identifier.split(separator: ":", maxSplits: 2).prefix(2).joined(separator: ":")
-                    let isStaleInstanceIndex = allCurrentBaseIdentifiers.contains(baseID)
-                    guard !isStaleInstanceIndex else { continue }
-                    guard !identifiers.contains(identifier) else { continue }
-
-                    // Put a closed app back where it was, not on the end.
-                    //
-                    // Appending threw away the position of every item that
-                    // was not running when the order was saved, and the
-                    // saved order is what the restore places items by. So
-                    // quitting an app was enough to lose its place: it came
-                    // back at the far end of its section rather than where
-                    // the user had put it, and a crash did the same.
-                    //
-                    // Its neighbour to the left is the thing to hold on to,
-                    // since that survives the items around it coming and
-                    // going. Absent items are walked in saved order, so one
-                    // that follows another absent item anchors on the one
-                    // just reinserted and the run keeps its shape.
-                    let anchor = savedIdentifiers[..<savedIndex].last {
-                        identifiers.contains($0)
-                    }
-                    if let anchor, let anchorIndex = identifiers.firstIndex(of: anchor) {
-                        identifiers.insert(identifier, at: identifiers.index(after: anchorIndex))
-                    } else {
-                        // Nothing to its left survived, so it was at the
-                        // start of the section.
-                        identifiers.insert(identifier, at: 0)
-                    }
+        var seen = Set<String>()
+        for section in appState?.menuBarManager.sections.map({ $0.name }) ?? MenuBarSection.Name.allCases {
+            let observed = cache[section].filter {
+                !$0.isControlItem && $0.tag.instanceIndex == 0 && !$0.tag.title.isEmpty
+            }.map(\.uniqueIdentifier)
+            let key = sectionKey(for: section)
+            for (index, identifier) in observed.enumerated() {
+                let identity = base(identifier)
+                guard seen.insert(identity).inserted else { continue }
+                let previous = newOrder.keys.sorted().compactMap { key -> (String, Int)? in
+                    newOrder[key]?.firstIndex(where: { base($0) == identity }).map { (key, $0) }
+                }.first
+                if let (oldKey, oldIndex) = previous, !edited.contains(identifier) {
+                    // A recreated window may acquire a new instance suffix.
+                    // Update its identity in place without adopting its position.
+                    newOrder[oldKey]?[oldIndex] = identifier
+                    continue
                 }
-            }
-
-            if !identifiers.isEmpty {
-                newOrder[sectionKey(for: section)] = identifiers
+                for oldKey in Array(newOrder.keys) {
+                    newOrder[oldKey]?.removeAll { base($0) == identity }
+                }
+                var order = newOrder[key, default: []]
+                if let before = observed[..<index].last(where: { order.contains($0) }),
+                   let anchor = order.firstIndex(of: before) {
+                    order.insert(identifier, at: anchor + 1)
+                } else if let after = observed[(index + 1)...].first(where: { order.contains($0) }),
+                          let anchor = order.firstIndex(of: after) {
+                    order.insert(identifier, at: anchor)
+                } else {
+                    order.append(identifier)
+                }
+                newOrder[key] = order
             }
         }
-
+        newOrder = newOrder.filter { !$0.value.isEmpty }
         guard newOrder != savedSectionOrder else { return }
         savedSectionOrder = newOrder
         persistSavedSectionOrder()
         MenuBarItemManager.diagLog.debug("Saved section order: \(newOrder.mapValues(\.count))")
+    }
+
+    /// Store the destination selected in Layout, independent of window geometry.
+    func recordLayoutMove(item: MenuBarItem, to destination: MoveDestination, section: MenuBarSection.Name) {
+        guard !item.isControlItem, !item.tag.title.isEmpty else { return }
+        let identifier = item.uniqueIdentifier
+        let base = identifier.split(separator: ":", maxSplits: 2).prefix(2).joined(separator: ":")
+        for key in Array(savedSectionOrder.keys) {
+            savedSectionOrder[key]?.removeAll {
+                $0.split(separator: ":", maxSplits: 2).prefix(2).joined(separator: ":") == base
+            }
+        }
+        let key = sectionKey(for: section)
+        var order = savedSectionOrder[key, default: []]
+        let anchor = order.firstIndex(of: destination.targetItem.uniqueIdentifier)
+        switch destination {
+        case .leftOfItem: order.insert(identifier, at: anchor ?? order.endIndex)
+        case .rightOfItem: order.insert(identifier, at: anchor.map { $0 + 1 } ?? order.startIndex)
+        }
+        savedSectionOrder[key] = order
+        savedSectionOrder = savedSectionOrder.filter { !$0.value.isEmpty }
+        persistSavedSectionOrder()
+        MenuBarItemManager.diagLog.debug("Saved explicit layout move for \(identifier) to \(key)")
+    }
+
+    /// Only a completed native drag can adopt an existing icon's observed position.
+    func saveExternalMove(of identifier: String) {
+        saveSectionOrder(from: itemCache, allowingChangesTo: [identifier])
     }
 
     /// Returns a persistable string key for the given section name.
@@ -5766,6 +5743,12 @@ extension MenuBarItemManager {
     func relocateItems(from section: MenuBarSection.Name) async {
         guard !section.isVisible else { return }
         let targetRank = section.rank - 1
+        if let target = MenuBarSection.Name.allCases.first(where: { $0.rank == targetRank }),
+           let saved = savedSectionOrder.removeValue(forKey: section.id) {
+            let existing = savedSectionOrder[target.id, default: []]
+            savedSectionOrder[target.id] = saved.filter { !existing.contains($0) } + existing
+            persistSavedSectionOrder()
+        }
         var items = await MenuBarItem.getMenuBarItems(option: .activeSpace)
         guard let controlItems = ControlItemSet(items: &items) else {
             MenuBarItemManager.diagLog.error("relocateItems: control items not found, cannot empty \(section.logString)")

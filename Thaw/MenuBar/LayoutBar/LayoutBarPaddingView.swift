@@ -207,6 +207,7 @@ final class LayoutBarPaddingView: NSView {
                 skipInputPause: true,
                 watchdogTimeout: MenuBarItemManager.layoutWatchdogTimeout
             )
+            appState.itemManager.recordLayoutMove(item: item, to: destination, section: container.section)
             appState.itemManager.removeTemporarilyShownItemFromCache(with: item.tag)
             await stabilizePlacement(of: item, to: destination, expectedSection: container.section, appState: appState)
         } catch {

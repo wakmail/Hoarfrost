@@ -22,6 +22,10 @@ final class HIDEventManager: ObservableObject {
     /// a menu bar item.
     @Published private(set) var isDraggingMenuBarItem = false
 
+    /// The icon under the original mouse down, before any dividers expand.
+    private var draggedItemIdentifier: String?
+    private var dragGeneration: UInt64 = 0
+
     /// The shared app state.
     private weak var appState: AppState?
 
@@ -107,6 +111,16 @@ final class HIDEventManager: ObservableObject {
         }
         switch event.type {
         case .leftMouseDown:
+            dragGeneration &+= 1
+            draggedItemIdentifier = nil
+            if event.modifierFlags.contains(.command),
+               let point = MouseHelpers.locationCoreGraphics,
+               isMouseInsideMenuBar(appState: appState, screen: screen) {
+                draggedItemIdentifier = appState.itemManager.itemCache.managedItems.first {
+                    !$0.isControlItem && $0.isMovable
+                        && (Bridging.getWindowBounds(for: $0.windowID)?.contains(point) ?? false)
+                }?.uniqueIdentifier
+            }
             // Check app menu first - if click is on app menu area, don't trigger
             // show-on-click or smart rehide (the click belongs to the app menu)
             let isAppMenuClick = handleApplicationMenuClickThrough(appState: appState, screen: screen)
@@ -724,6 +738,9 @@ extension HIDEventManager {
     // MARK: Handle Menu Bar Item Drag Stop
 
     private func handleMenuBarItemDragStop() {
+        let identifier = draggedItemIdentifier
+        let generation = dragGeneration
+        draggedItemIdentifier = nil
         if isDraggingMenuBarItem {
             isDraggingMenuBarItem = false
 
@@ -732,9 +749,14 @@ extension HIDEventManager {
             // then schedule a cache update to pick up the user's new item positions.
             if let appState {
                 appState.itemManager.recordExternalMoveOperation()
-                Task { [weak appState] in
-                    try? await Task.sleep(for: .milliseconds(500))
-                    await appState?.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
+                Task { [weak self, weak appState] in
+                    do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+                    guard let self, generation == dragGeneration,
+                          let appState, !appState.isDraggingMenuBarItem else { return }
+                    await appState.itemManager.cacheItemsRegardless(skipRecentMoveCheck: true)
+                    guard !Task.isCancelled, generation == dragGeneration,
+                          !appState.isDraggingMenuBarItem, let identifier else { return }
+                    appState.itemManager.saveExternalMove(of: identifier)
                 }
             }
         }
